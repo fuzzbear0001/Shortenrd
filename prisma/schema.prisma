@@ -1,0 +1,22 @@
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://neondb_owner:npg_NyM6vTkACq8c@ep-black-haze-a4as8m1r-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String   @id
+  linkCount     Int
+  lastUsedDate  DateTime
+  totalLinks    Int
+}
+
+model Config {
+  id             String  @id @default(cuid())
+  guildId        String  @unique
+  reportChannel  String
+  strictMode     Boolean @default(false)
+}
