@@ -1,11 +1,11 @@
-datasource db {
-  provider = "postgresql"
-  url      = "postgres://neondb_owner:npg_NyM6vTkACq8c@ep-black-haze-a4as8m1r-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
 }
 
-generator client {
-  provider = "prisma-client-js"
-	engineType      = "binary"
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
 }
 
 model User {
