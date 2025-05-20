@@ -29,4 +29,4 @@ fs.readdirSync('./handlers').forEach((handler) => {
 });
 
 
-client.login(process.env.TOKEN)
+client.login(process.env.BotToken)
