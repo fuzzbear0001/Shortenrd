@@ -1,6 +1,8 @@
 const { ApplicationCommandType, ApplicationCommandOptionType, ButtonBuilder, ButtonStyle, ActionRowBuilder, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
-const prisma = require('../../lib/prisma');
+const { db } = require('../drizzle/db.js');
+const { users } = require('../drizzle/schema.js');
+const { eq } = require('drizzle-orm');
 
 module.exports = {
 	name: 'shorten',
@@ -17,51 +19,44 @@ module.exports = {
 	],
 	run: async (client, interaction) => {
 		const userId = interaction.user.id;
-		const guildId = interaction.guildId;
 		const url = interaction.options.getString('url');
-
-		// Fetch or create user in DB
-		let user = await prisma.user.findUnique({ where: { id: userId } });
 		const today = new Date().toISOString().split('T')[0];
 
-		if (!user) {
-			user = await prisma.user.create({
-				data: {
-					id: userId,
-					linkCount: 1,
-					lastUsedDate: new Date(),
-					totalLinks: 1,
-				},
+		const existingUser = await db.select().from(users).where(eq(users.id, userId)).then(rows => rows[0]);
+
+		if (!existingUser) {
+			await db.insert(users).values({
+				id: userId,
+				linkCount: 1,
+				lastUsedDate: new Date(),
+				totalLinks: 1,
 			});
 		} else {
-			const lastUsed = user.lastUsedDate.toISOString().split('T')[0];
+			const lastUsed = existingUser.lastUsedDate.toISOString().split('T')[0];
 			if (lastUsed === today) {
-				if (user.linkCount >= 3) {
+				if (existingUser.linkCount >= 3) {
 					return interaction.reply({
 						content: '⚠️ You have reached your daily limit of 3 shortened links.',
 						ephemeral: true,
 					});
 				}
-				await prisma.user.update({
-					where: { id: userId },
-					data: {
-						linkCount: { increment: 1 },
-						totalLinks: { increment: 1 },
-					},
-				});
+				await db.update(users)
+					.set({
+						linkCount: existingUser.linkCount + 1,
+						totalLinks: existingUser.totalLinks + 1,
+					})
+					.where(eq(users.id, userId));
 			} else {
-				await prisma.user.update({
-					where: { id: userId },
-					data: {
+				await db.update(users)
+					.set({
 						linkCount: 1,
 						lastUsedDate: new Date(),
-						totalLinks: { increment: 1 },
-					},
-				});
+						totalLinks: existingUser.totalLinks + 1,
+					})
+					.where(eq(users.id, userId));
 			}
 		}
 
-		// Shorten URL using API
 		try {
 			const res = await axios.post(
 				'https://shortenr.me/api/discord/shorten',
@@ -69,7 +64,7 @@ module.exports = {
 				{
 					headers: {
 						Authorization: process.env.ShortenrApiKey,
-					},
+					}
 				}
 			);
 
@@ -98,14 +93,13 @@ module.exports = {
 			return interaction.reply({
 				embeds: [embed],
 				components: [buttons],
-				ephemeral: false,
 			});
-		} catch (error) {
-			console.error('Shorten API error:', error);
+		} catch (err) {
+			console.error('Shorten API error:', err);
 			return interaction.reply({
 				content: '❌ Failed to shorten the URL. Please try again later.',
 				ephemeral: true,
 			});
 		}
-	},
+	}
 };
