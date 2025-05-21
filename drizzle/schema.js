@@ -1,4 +1,4 @@
-const { pgTable, varchar, integer, date, boolean } = require('drizzle-orm/pg-core');
+const { pgTable, varchar, integer, date, boolean, json } = require('drizzle-orm/pg-core');
 
 const users = pgTable('users', {
   id: varchar('id', { length: 255 }).primaryKey(),
