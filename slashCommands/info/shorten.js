@@ -1,7 +1,7 @@
 const { ApplicationCommandType, ApplicationCommandOptionType, ButtonBuilder, ButtonStyle, ActionRowBuilder, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
-const { db } = require('../drizzle/db.js');
-const { users } = require('../drizzle/schema.js');
+const { db } = require('../../drizzle/db.js');
+const { users } = require('../../drizzle/schema.js');
 const { eq } = require('drizzle-orm');
 
 module.exports = {
