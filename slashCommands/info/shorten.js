@@ -67,14 +67,14 @@ module.exports = {
 
     try {
       const res = await axios.post(
-        'https://shortenr.me/api/discord/shorten',
-        { url },
-        {
-          headers: {
-            Authorization: 'HDISIDJSOCHJEEJXJJSKSKFJSISJD82829499292949292938482929JDJSJSJCJDJDJDJ',
-          }
-        }
-      );
+  'https://shortenr.me/api/discord/shorten',
+  { url },
+  {
+    headers: {
+      Authorization: 'Bearer HDISIDJSOCHJEEJXJJSKSKFJSISJD82829499292949292938482929JDJSJSJCJDJDJDJ',
+    }
+  }
+)
 
       const shortened = res.data?.shortened || 'Unknown';
       const embed = new EmbedBuilder()
