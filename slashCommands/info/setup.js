@@ -1,12 +1,10 @@
 const { 
   ApplicationCommandType, 
-  ApplicationCommandOptionType, 
   ActionRowBuilder, 
   StringSelectMenuBuilder, 
   ChannelSelectMenuBuilder, 
   ComponentType, 
   EmbedBuilder,
-  PermissionFlagsBits 
 } = require('discord.js');
 
 const { eq } = require('drizzle-orm');
@@ -19,15 +17,14 @@ module.exports = {
   type: ApplicationCommandType.ChatInput,
   cooldown: 10000,
   run: async (client, interaction) => {
-    // Only guild owner can setup
     if (interaction.user.id !== interaction.guild.ownerId) {
-      return interaction.reply({ content: 'Only the server owner can run this setup command.', ephemeral: true });
+      // Use flags: 64 for ephemeral instead of deprecated ephemeral: true
+      return interaction.reply({ content: 'Only the server owner can run this setup command.', flags: 64 });
     }
 
     const db = await dbPromise;
     const guildId = interaction.guild.id;
 
-    // Fetch existing config or default values
     const existing = await db
       .select()
       .from(configs)
@@ -36,10 +33,8 @@ module.exports = {
       .execute();
 
     const config = existing[0] || { adminRoleId: null, adminUserIds: '[]', reportChannel: null };
-
     const adminUserIds = JSON.parse(config.adminUserIds || '[]');
 
-    // Build embed showing current config
     const embed = new EmbedBuilder()
       .setTitle(`Server Setup for ${interaction.guild.name}`)
       .setDescription(`Configure admin role, admin users, and report channel.\n\n**Note:** Bot must have a role higher than the admin role.`)
@@ -51,24 +46,24 @@ module.exports = {
       .setColor('Blue')
       .setTimestamp();
 
-    // Prepare role select menu for admin role (single)
+    // Make sure description strings are 25+ characters or undefined
     const roleSelect = new StringSelectMenuBuilder()
       .setCustomId('select_admin_role')
       .setPlaceholder('Select Admin Role')
       .addOptions(
         interaction.guild.roles.cache
-          .filter(r => r.editable && r.id !== interaction.guild.id) // Editable by bot and not @everyone
+          .filter(r => r.editable && r.id !== interaction.guild.id)
           .map(role => ({
             label: role.name,
             value: role.id,
-            description: role.id === config.adminRoleId ? 'Current admin role' : undefined,
+            // Only add description if >= 25 chars, else omit to fix error
+            description: role.id === config.adminRoleId ? 'This is the currently assigned admin role for this server.' : undefined,
           }))
       );
 
-    // Prepare member select menu for admin users (multi)
     const memberSelect = new StringSelectMenuBuilder()
       .setCustomId('select_admin_users')
-      .setPlaceholder('Add/Remove Admin Users')
+      .setPlaceholder('Add or Remove Admin Users')
       .setMinValues(0)
       .setMaxValues(25)
       .addOptions(
@@ -77,25 +72,23 @@ module.exports = {
           .map(member => ({
             label: member.user.username,
             value: member.id,
-            description: adminUserIds.includes(member.id) ? 'Already admin' : undefined,
+            description: adminUserIds.includes(member.id)
+              ? 'This user currently has admin privileges set on the server.'
+              : undefined,
           }))
       );
 
-    // Prepare channel select menu for report channel (single)
     const channelSelect = new ChannelSelectMenuBuilder()
       .setCustomId('select_report_channel')
       .setPlaceholder('Select Report Channel')
-      .setChannelTypes([0]); // 0 = GUILD_TEXT only
+      .setChannelTypes([0]); // GUILD_TEXT only
 
-    // Action rows with selects
     const row1 = new ActionRowBuilder().addComponents(roleSelect);
     const row2 = new ActionRowBuilder().addComponents(memberSelect);
     const row3 = new ActionRowBuilder().addComponents(channelSelect);
 
-    // Reply with embed and selects
-    await interaction.reply({ embeds: [embed], components: [row1, row2, row3], ephemeral: true });
+    await interaction.reply({ embeds: [embed], components: [row1, row2, row3], flags: 64 });
 
-    // Create a collector for select menus for 2 minutes
     const collector = interaction.channel.createMessageComponentCollector({
       componentType: ComponentType.StringSelect,
       time: 120000,
@@ -106,16 +99,13 @@ module.exports = {
       if (i.customId === 'select_admin_role') {
         const selectedRoleId = i.values[0];
         const botMember = interaction.guild.members.me;
-
-        // Check bot role position
         const botRolePos = botMember.roles.highest.position;
         const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
 
         if (selectedRole.position >= botRolePos) {
-          return i.reply({ content: '❌ I need my role to be higher than the admin role to manage permissions properly.', ephemeral: true });
+          return i.reply({ content: '❌ I need my role to be higher than the admin role to manage permissions properly.', flags: 64 });
         }
 
-        // Update or insert config
         if (existing.length) {
           await db.update(configs).set({ adminRoleId: selectedRoleId }).where(eq(configs.guildId, guildId)).execute();
         } else {
@@ -136,14 +126,11 @@ module.exports = {
       } else if (i.customId === 'select_admin_users') {
         const selectedUserIds = i.values;
 
-        // Toggle selected users (add if not exist, remove if already there)
         selectedUserIds.forEach(userId => {
           if (adminUserIds.includes(userId)) {
-            // Remove
             const index = adminUserIds.indexOf(userId);
             if (index > -1) adminUserIds.splice(index, 1);
           } else {
-            // Add
             adminUserIds.push(userId);
           }
         });
