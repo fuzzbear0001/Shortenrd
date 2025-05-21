@@ -1,0 +1,8 @@
+{
+  "schema": "./drizzle/schema.js",
+  "out": "./drizzle/migrations",
+  "driver": "pg",
+  "dbCredentials": {
+    "connectionString": "your-database-url-here"
+  }
+}
