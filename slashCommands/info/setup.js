@@ -8,6 +8,7 @@ const {
   EmbedBuilder,
   PermissionFlagsBits 
 } = require('discord.js');
+const { dbPromise } = require('../../drizzle/db.js');
 
 module.exports = {
   name: 'setup',
@@ -20,6 +21,7 @@ module.exports = {
       return interaction.reply({ content: 'Only the server owner can run this setup command.', ephemeral: true });
     }
 
+const db = await dbPromise;
     // Fetch existing config or default values
     const guildId = interaction.guild.id;
     const existing = await db.select().from(configs).where(configs.guildId.eq(guildId)).limit(1).execute();
