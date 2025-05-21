@@ -8,7 +8,7 @@ const users = pgTable('users', {
 });
 
 const configs = pgTable('configs', {
-  id: varchar('id', { length: 255 }).defaultRandom().primaryKey(),
+  id: varchar('id', { length: 255 }).primaryKey(),
   guildId: varchar('guild_id', { length: 255 }).unique().notNull(),
   reportChannel: varchar('report_channel', { length: 255 }).notNull(),
   strictMode: boolean('strict_mode').notNull().default(false),
