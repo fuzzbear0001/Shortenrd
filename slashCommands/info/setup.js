@@ -15,7 +15,7 @@ module.exports = {
   description: 'Setup your server admin role, admins, and report channel (guild owner only).',
   type: ApplicationCommandType.ChatInput,
   cooldown: 10000,
-  run: async (client, interaction, db, configs) => {
+  run: async (client, interaction) => {
     // Only guild owner can setup
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({ content: 'Only the server owner can run this setup command.', ephemeral: true });
