@@ -1,10 +1,18 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import pkg from 'pg';
+const pkg = require('pg');
 const { Pool } = pkg;
-import * as schema from './schema.js';
+const schema = require('./schema.js');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+// Use top-level async function to handle ESM import
+const loadDB = async () => {
+  const { drizzle } = await import('drizzle-orm/node-postgres');
 
-export const db = drizzle(pool, { schema });
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+  });
+
+  const db = drizzle(pool, { schema });
+
+  module.exports = { db };
+};
+
+loadDB();
