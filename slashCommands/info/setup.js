@@ -66,25 +66,20 @@ const roleSelect = new StringSelectMenuBuilder()
       })
   );
 
+const memberOptions = interaction.guild.members.cache
+  .filter(m => !m.user.bot)
+  .map(member => ({
+    label: member.user.username,
+    value: member.id,
+    description: adminUserIds.includes(member.id) ? 'This user is already an admin in your server configuration.' : undefined,
+  }));
+
 const memberSelect = new StringSelectMenuBuilder()
   .setCustomId('select_admin_users')
   .setPlaceholder('Add/Remove Admin Users')
   .setMinValues(0)
-  .setMaxValues(25)
-  .addOptions(
-    interaction.guild.members.cache
-      .filter(m => !m.user.bot)
-      .map(member => {
-        const isAdmin = adminUserIds.includes(member.id);
-        return {
-          label: member.user.username.slice(0, 100),
-          value: member.id,
-          ...(isAdmin ? {
-            description: '✅ Already configured as admin (25+ characters)'
-          } : {})
-        };
-      })
-  );
+  .setMaxValues(Math.min(25, memberOptions.length)) // cap at available options
+  .addOptions(memberOptions);
 
     const channelSelect = new ChannelSelectMenuBuilder()
       .setCustomId('select_report_channel')
