@@ -3,29 +3,22 @@ const client = require('..');
 const chalk = require('chalk');
 
 client.on("ready", () => {
+	console.log(chalk.green(`✅ Logged in as ${client.user.tag} for Shortenr.me`));
+
+	// Set bot status to 'online'
+	client.user.setStatus('online');
+
+	// Professional activity messages
 	const activities = [
-		{ name: `${client.guilds.cache.size} Servers`, type: ActivityType.Listening },
-		{ name: `${client.channels.cache.size} Channels`, type: ActivityType.Playing },
-		{ name: `${client.users.cache.size} Users`, type: ActivityType.Watching },
-		{ name: `Discord.js v14`, type: ActivityType.Competing }
+		{ name: `Shortenr.me | ${client.guilds.cache.size} servers`, type: ActivityType.Watching },
+		{ name: `Optimizing ${client.channels.cache.size} channels`, type: ActivityType.Playing },
+		{ name: `Serving ${client.users.cache.size} users`, type: ActivityType.Listening },
+		{ name: `Links, Analytics & Servers`, type: ActivityType.Watching }
 	];
-	const status = [
-		'online',
-		'dnd',
-		'idle'
-	];
+
 	let i = 0;
 	setInterval(() => {
-		if(i >= activities.length) i = 0
-		client.user.setActivity(activities[i])
-		i++;
-	}, 5000);
-
-	let s = 0;
-	setInterval(() => {
-		if(s >= activities.length) s = 0
-		client.user.setStatus(status[s])
-		s++;
-	}, 30000);
-	console.log(chalk.red(`Logged in as ${client.user.tag}!`))
+		client.user.setActivity(activities[i]);
+		i = (i + 1) % activities.length;
+	}, 10000); // Update every 10 seconds
 });
