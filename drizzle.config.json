@@ -1,9 +1,0 @@
-{
-  "schema": "./drizzle/schema.js",
-  "out": "./drizzle/migrations",
-   "dialect": "postgresql",
-  "driver": "pglite",
-  "dbCredentials": {
-    "connectionString": "your-database-url-here"
-  }
-}
