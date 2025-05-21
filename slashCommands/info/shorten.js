@@ -42,7 +42,7 @@ module.exports = {
     } else {
       const lastUsed = new Date(existingUser.lastUsedDate).toISOString().split('T')[0];
       if (lastUsed === today) {
-        if (existingUser.linkCount >= 3) {
+        if (existingUser.linkCount >= 10) {
           return interaction.reply({
             content: '⚠️ You have reached your daily limit of 3 shortened links.',
             flags: 1 << 6, // equivalent to ephemeral
