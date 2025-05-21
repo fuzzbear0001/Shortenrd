@@ -12,6 +12,8 @@ const configs = pgTable('configs', {
   guildId: varchar('guild_id', { length: 255 }).unique().notNull(),
   reportChannel: varchar('report_channel', { length: 255 }).notNull(),
   strictMode: boolean('strict_mode').notNull().default(false),
+  adminRoleId: varchar('admin_role_id', { length: 255 }).default(null),
+  adminUserIds: json('admin_user_ids').default('[]'),
 });
 
 module.exports = {
