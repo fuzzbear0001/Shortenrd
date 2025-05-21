@@ -1,9 +1,9 @@
-const { 
-  ApplicationCommandType, 
-  ActionRowBuilder, 
-  StringSelectMenuBuilder, 
-  ChannelSelectMenuBuilder, 
-  ComponentType, 
+const {
+  ApplicationCommandType,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ChannelSelectMenuBuilder,
+  ComponentType,
   EmbedBuilder,
 } = require('discord.js');
 
@@ -18,10 +18,10 @@ module.exports = {
   cooldown: 10000,
   run: async (client, interaction) => {
     if (interaction.user.id !== interaction.guild.ownerId) {
-      // Use flags: 64 for ephemeral instead of deprecated ephemeral: true
       return interaction.reply({ content: 'Only the server owner can run this setup command.', flags: 64 });
     }
 
+    await interaction.guild.members.fetch(); // ensure full member cache
     const db = await dbPromise;
     const guildId = interaction.guild.id;
 
@@ -32,7 +32,12 @@ module.exports = {
       .limit(1)
       .execute();
 
-    const config = existing[0] || { adminRoleId: null, adminUserIds: '[]', reportChannel: null };
+    const config = existing[0] || {
+      adminRoleId: null,
+      adminUserIds: '[]',
+      reportChannel: null,
+    };
+
     const adminUserIds = JSON.parse(config.adminUserIds || '[]');
 
     const embed = new EmbedBuilder()
@@ -46,51 +51,55 @@ module.exports = {
       .setColor('Blue')
       .setTimestamp();
 
-    // Make sure description strings are 25+ characters or undefined
-    // Role select menu
-const roleSelect = new StringSelectMenuBuilder()
-  .setCustomId('select_admin_role')
-  .setPlaceholder('Select Admin Role')
-  .addOptions(
-    interaction.guild.roles.cache
-      .filter(r => r.editable && r.id !== interaction.guild.id)
-      .map(role => {
-        const isAdmin = role.id === config.adminRoleId;
-        return {
-          label: role.name.slice(0, 100),
-          value: role.id,
-          ...(isAdmin ? {
-            description: '✅ This role is currently set as admin (25+ characters long)'
-          } : {})
-        };
-      })
-  );
+    // Role select
+    const roleSelect = new StringSelectMenuBuilder()
+      .setCustomId('select_admin_role')
+      .setPlaceholder('Select Admin Role')
+      .addOptions(
+        interaction.guild.roles.cache
+          .filter(r => r.editable && r.id !== interaction.guild.id)
+          .map(role => ({
+            label: role.name.slice(0, 100),
+            value: role.id,
+            description: role.id === config.adminRoleId
+              ? '✅ This role is currently set as admin.'
+              : undefined,
+          }))
+      );
 
-const memberOptions = interaction.guild.members.cache
-  .filter(m => !m.user.bot)
-  .map(member => ({
-    label: member.user.username,
-    value: member.id,
-    description: adminUserIds.includes(member.id) ? 'This user is already an admin in your server configuration.' : undefined,
-  }));
+    // Member select
+    const memberOptions = interaction.guild.members.cache
+      .filter(m => !m.user.bot)
+      .map(member => ({
+        label: member.user.username.slice(0, 100),
+        value: member.id,
+        description: adminUserIds.includes(member.id)
+          ? 'Already in admin list.'
+          : undefined,
+      }));
 
-const memberSelect = new StringSelectMenuBuilder()
-  .setCustomId('select_admin_users')
-  .setPlaceholder('Add/Remove Admin Users')
-  .setMinValues(0)
-  .setMaxValues(Math.min(25, memberOptions.length)) // cap at available options
-  .addOptions(memberOptions);
+    const memberSelect = new StringSelectMenuBuilder()
+      .setCustomId('select_admin_users')
+      .setPlaceholder('Add/Remove Admin Users')
+      .setMinValues(0)
+      .setMaxValues(Math.min(memberOptions.length, 25)) // Fix for API error
+      .addOptions(memberOptions);
 
+    // Channel select
     const channelSelect = new ChannelSelectMenuBuilder()
       .setCustomId('select_report_channel')
       .setPlaceholder('Select Report Channel')
-      .setChannelTypes([0]); // GUILD_TEXT only
+      .setChannelTypes([0]);
 
     const row1 = new ActionRowBuilder().addComponents(roleSelect);
     const row2 = new ActionRowBuilder().addComponents(memberSelect);
     const row3 = new ActionRowBuilder().addComponents(channelSelect);
 
-    await interaction.reply({ embeds: [embed], components: [row1, row2, row3], flags: 64 });
+    await interaction.reply({
+      embeds: [embed],
+      components: [row1, row2, row3],
+      flags: 64,
+    });
 
     const collector = interaction.channel.createMessageComponentCollector({
       componentType: ComponentType.StringSelect,
@@ -99,86 +108,100 @@ const memberSelect = new StringSelectMenuBuilder()
     });
 
     collector.on('collect', async i => {
-      if (i.customId === 'select_admin_role') {
-        const selectedRoleId = i.values[0];
-        const botMember = interaction.guild.members.me;
-        const botRolePos = botMember.roles.highest.position;
-        const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
+      try {
+        if (i.customId === 'select_admin_role') {
+          const selectedRoleId = i.values[0];
+          const botMember = interaction.guild.members.me;
+          const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
 
-        if (selectedRole.position >= botRolePos) {
-          return i.reply({ content: '❌ I need my role to be higher than the admin role to manage permissions properly.', flags: 64 });
-        }
-
-        if (existing.length) {
-          await db.update(configs).set({ adminRoleId: selectedRoleId }).where(eq(configs.guildId, guildId)).execute();
-        } else {
-          await db.insert(configs).values({ 
-            id: guildId, 
-            guildId, 
-            adminRoleId: selectedRoleId, 
-            adminUserIds: '[]', 
-            reportChannel: null 
-          }).execute();
-        }
-
-        config.adminRoleId = selectedRoleId;
-        embed.fields[0].value = `<@&${selectedRoleId}>`;
-
-        await i.update({ embeds: [embed] });
-
-      } else if (i.customId === 'select_admin_users') {
-        const selectedUserIds = i.values;
-
-        selectedUserIds.forEach(userId => {
-          if (adminUserIds.includes(userId)) {
-            const index = adminUserIds.indexOf(userId);
-            if (index > -1) adminUserIds.splice(index, 1);
-          } else {
-            adminUserIds.push(userId);
+          if (selectedRole.position >= botMember.roles.highest.position) {
+            return i.reply({ content: '❌ My role must be above the selected admin role.', flags: 64 });
           }
-        });
 
-        if (existing.length) {
-          await db.update(configs).set({ adminUserIds: JSON.stringify(adminUserIds) }).where(eq(configs.guildId, guildId)).execute();
-        } else {
-          await db.insert(configs).values({
-            id: guildId,
-            guildId,
-            adminRoleId: null,
-            adminUserIds: JSON.stringify(adminUserIds),
-            reportChannel: null
-          }).execute();
+          await db
+            .insert(configs)
+            .values({
+              id: guildId,
+              guildId,
+              adminRoleId: selectedRoleId,
+              adminUserIds: JSON.stringify(adminUserIds),
+              reportChannel: config.reportChannel || '0', // dummy fallback if null
+            })
+            .onConflictDoUpdate({
+              target: configs.guildId,
+              set: { adminRoleId: selectedRoleId },
+            })
+            .execute();
+
+          config.adminRoleId = selectedRoleId;
+          embed.fields[0].value = `<@&${selectedRoleId}>`;
+          await i.update({ embeds: [embed], components: [row1, row2, row3] });
+
+        } else if (i.customId === 'select_admin_users') {
+          const selectedUserIds = i.values;
+
+          selectedUserIds.forEach(userId => {
+            if (adminUserIds.includes(userId)) {
+              adminUserIds.splice(adminUserIds.indexOf(userId), 1);
+            } else {
+              adminUserIds.push(userId);
+            }
+          });
+
+          await db
+            .insert(configs)
+            .values({
+              id: guildId,
+              guildId,
+              adminRoleId: config.adminRoleId,
+              adminUserIds: JSON.stringify(adminUserIds),
+              reportChannel: config.reportChannel || '0',
+            })
+            .onConflictDoUpdate({
+              target: configs.guildId,
+              set: { adminUserIds: JSON.stringify(adminUserIds) },
+            })
+            .execute();
+
+          config.adminUserIds = JSON.stringify(adminUserIds);
+          embed.fields[1].value = adminUserIds.length
+            ? adminUserIds.map(id => `<@${id}>`).join('\n')
+            : 'No admins set';
+
+          await i.update({ embeds: [embed], components: [row1, row2, row3] });
+
+        } else if (i.customId === 'select_report_channel') {
+          const selectedChannelId = i.values[0];
+
+          await db
+            .insert(configs)
+            .values({
+              id: guildId,
+              guildId,
+              adminRoleId: config.adminRoleId,
+              adminUserIds: JSON.stringify(adminUserIds),
+              reportChannel: selectedChannelId,
+            })
+            .onConflictDoUpdate({
+              target: configs.guildId,
+              set: { reportChannel: selectedChannelId },
+            })
+            .execute();
+
+          config.reportChannel = selectedChannelId;
+          embed.fields[2].value = `<#${selectedChannelId}>`;
+          await i.update({ embeds: [embed], components: [row1, row2, row3] });
         }
-
-        config.adminUserIds = JSON.stringify(adminUserIds);
-        embed.fields[1].value = adminUserIds.length ? adminUserIds.map(id => `<@${id}>`).join('\n') : 'No admins set';
-
-        await i.update({ embeds: [embed] });
-
-      } else if (i.customId === 'select_report_channel') {
-        const selectedChannelId = i.values[0];
-
-        if (existing.length) {
-          await db.update(configs).set({ reportChannel: selectedChannelId }).where(eq(configs.guildId, guildId)).execute();
-        } else {
-          await db.insert(configs).values({
-            id: guildId,
-            guildId,
-            adminRoleId: null,
-            adminUserIds: '[]',
-            reportChannel: selectedChannelId
-          }).execute();
-        }
-
-        config.reportChannel = selectedChannelId;
-        embed.fields[2].value = `<#${selectedChannelId}>`;
-
-        await i.update({ embeds: [embed] });
+      } catch (err) {
+        console.error(err);
+        await i.reply({ content: '❌ Something went wrong during setup.', flags: 64 });
       }
     });
 
-    collector.on('end', () => {
-      interaction.editReply({ content: 'Setup session ended.', components: [] }).catch(() => {});
+    collector.on('end', async () => {
+      try {
+        await interaction.editReply({ content: 'Setup session ended.', components: [] });
+      } catch {}
     });
   },
 };
