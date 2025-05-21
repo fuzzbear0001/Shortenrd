@@ -54,15 +54,18 @@ const roleSelect = new StringSelectMenuBuilder()
   .addOptions(
     interaction.guild.roles.cache
       .filter(r => r.editable && r.id !== interaction.guild.id)
-      .map(role => ({
-        label: role.name,
-        value: role.id,
-        // Only add description if >= 25 chars
-        description: role.id === config.adminRoleId ? 'This role is currently set as the admin role in your server.' : undefined,
-      }))
+      .map(role => {
+        const isAdmin = role.id === config.adminRoleId;
+        return {
+          label: role.name.slice(0, 100),
+          value: role.id,
+          ...(isAdmin ? {
+            description: '✅ This role is currently set as admin (25+ characters long)'
+          } : {})
+        };
+      })
   );
 
-// Member select menu
 const memberSelect = new StringSelectMenuBuilder()
   .setCustomId('select_admin_users')
   .setPlaceholder('Add/Remove Admin Users')
@@ -71,11 +74,16 @@ const memberSelect = new StringSelectMenuBuilder()
   .addOptions(
     interaction.guild.members.cache
       .filter(m => !m.user.bot)
-      .map(member => ({
-        label: member.user.username,
-        value: member.id,
-        description: adminUserIds.includes(member.id) ? 'This user is already an admin in your server configuration.' : undefined,
-      }))
+      .map(member => {
+        const isAdmin = adminUserIds.includes(member.id);
+        return {
+          label: member.user.username.slice(0, 100),
+          value: member.id,
+          ...(isAdmin ? {
+            description: '✅ Already configured as admin (25+ characters)'
+          } : {})
+        };
+      })
   );
 
     const channelSelect = new ChannelSelectMenuBuilder()
