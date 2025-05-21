@@ -47,36 +47,36 @@ module.exports = {
       .setTimestamp();
 
     // Make sure description strings are 25+ characters or undefined
-    const roleSelect = new StringSelectMenuBuilder()
-      .setCustomId('select_admin_role')
-      .setPlaceholder('Select Admin Role')
-      .addOptions(
-        interaction.guild.roles.cache
-          .filter(r => r.editable && r.id !== interaction.guild.id)
-          .map(role => ({
-            label: role.name,
-            value: role.id,
-            // Only add description if >= 25 chars, else omit to fix error
-            description: role.id === config.adminRoleId ? 'This is the currently assigned admin role for this server.' : undefined,
-          }))
-      );
+    // Role select menu
+const roleSelect = new StringSelectMenuBuilder()
+  .setCustomId('select_admin_role')
+  .setPlaceholder('Select Admin Role')
+  .addOptions(
+    interaction.guild.roles.cache
+      .filter(r => r.editable && r.id !== interaction.guild.id)
+      .map(role => ({
+        label: role.name,
+        value: role.id,
+        // Only add description if >= 25 chars
+        description: role.id === config.adminRoleId ? 'This role is currently set as the admin role in your server.' : undefined,
+      }))
+  );
 
-    const memberSelect = new StringSelectMenuBuilder()
-      .setCustomId('select_admin_users')
-      .setPlaceholder('Add or Remove Admin Users')
-      .setMinValues(0)
-      .setMaxValues(25)
-      .addOptions(
-        interaction.guild.members.cache
-          .filter(m => !m.user.bot)
-          .map(member => ({
-            label: member.user.username,
-            value: member.id,
-            description: adminUserIds.includes(member.id)
-              ? 'This user currently has admin privileges set on the server.'
-              : undefined,
-          }))
-      );
+// Member select menu
+const memberSelect = new StringSelectMenuBuilder()
+  .setCustomId('select_admin_users')
+  .setPlaceholder('Add/Remove Admin Users')
+  .setMinValues(0)
+  .setMaxValues(25)
+  .addOptions(
+    interaction.guild.members.cache
+      .filter(m => !m.user.bot)
+      .map(member => ({
+        label: member.user.username,
+        value: member.id,
+        description: adminUserIds.includes(member.id) ? 'This user is already an admin in your server configuration.' : undefined,
+      }))
+  );
 
     const channelSelect = new ChannelSelectMenuBuilder()
       .setCustomId('select_report_channel')
