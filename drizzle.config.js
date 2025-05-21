@@ -1,9 +1,9 @@
 module.exports = {
   schema: "./drizzle/schema.js",
   out: "./drizzle/migrations",
-  dialect: "postgresql",      // add this!
-  driver: "pglite",           // change driver to "pglite" for postgres
+  dialect: "postgresql",
+  driver: "pg", // ✅ correct driver for PostgreSQL
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL, // ✅ use 'connectionString' instead of 'url'
   },
 };
