@@ -8,8 +8,10 @@ const {
   EmbedBuilder,
   PermissionFlagsBits 
 } = require('discord.js');
-const { dbPromise } = require('../../drizzle/db.js');
+
+const { eq } = require('drizzle-orm');
 const { configs } = require('../../drizzle/schema.js');
+const { dbPromise } = require('../../drizzle/db.js');
 
 module.exports = {
   name: 'setup',
@@ -22,10 +24,17 @@ module.exports = {
       return interaction.reply({ content: 'Only the server owner can run this setup command.', ephemeral: true });
     }
 
-const db = await dbPromise;
-    // Fetch existing config or default values
+    const db = await dbPromise;
     const guildId = interaction.guild.id;
-    const existing = await db.select().from(configs).where(configs.guildId.eq(guildId)).limit(1).execute();
+
+    // Fetch existing config or default values
+    const existing = await db
+      .select()
+      .from(configs)
+      .where(eq(configs.guildId, guildId))
+      .limit(1)
+      .execute();
+
     const config = existing[0] || { adminRoleId: null, adminUserIds: '[]', reportChannel: null };
 
     const adminUserIds = JSON.parse(config.adminUserIds || '[]');
@@ -108,7 +117,7 @@ const db = await dbPromise;
 
         // Update or insert config
         if (existing.length) {
-          await db.update(configs).set({ adminRoleId: selectedRoleId }).where(configs.guildId.eq(guildId)).execute();
+          await db.update(configs).set({ adminRoleId: selectedRoleId }).where(eq(configs.guildId, guildId)).execute();
         } else {
           await db.insert(configs).values({ 
             id: guildId, 
@@ -140,7 +149,7 @@ const db = await dbPromise;
         });
 
         if (existing.length) {
-          await db.update(configs).set({ adminUserIds: JSON.stringify(adminUserIds) }).where(configs.guildId.eq(guildId)).execute();
+          await db.update(configs).set({ adminUserIds: JSON.stringify(adminUserIds) }).where(eq(configs.guildId, guildId)).execute();
         } else {
           await db.insert(configs).values({
             id: guildId,
@@ -160,7 +169,7 @@ const db = await dbPromise;
         const selectedChannelId = i.values[0];
 
         if (existing.length) {
-          await db.update(configs).set({ reportChannel: selectedChannelId }).where(configs.guildId.eq(guildId)).execute();
+          await db.update(configs).set({ reportChannel: selectedChannelId }).where(eq(configs.guildId, guildId)).execute();
         } else {
           await db.insert(configs).values({
             id: guildId,
