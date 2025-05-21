@@ -1,6 +1,6 @@
 const { ApplicationCommandType, ApplicationCommandOptionType, ButtonBuilder, ButtonStyle, ActionRowBuilder, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
-const { db } = require('../../drizzle/db.js');
+const { dbPromise } = require('../../drizzle/db.js');
 const { users } = require('../../drizzle/schema.js');
 const { eq } = require('drizzle-orm');
 
@@ -18,6 +18,7 @@ module.exports = {
 		},
 	],
 	run: async (client, interaction) => {
+		const db = await dbPromise;
 		const userId = interaction.user.id;
 		const url = interaction.options.getString('url');
 		const today = new Date().toISOString().split('T')[0];
