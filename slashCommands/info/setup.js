@@ -9,6 +9,7 @@ const {
   PermissionFlagsBits 
 } = require('discord.js');
 const { dbPromise } = require('../../drizzle/db.js');
+const { configs } = require('../../drizzle/schema.js');
 
 module.exports = {
   name: 'setup',
