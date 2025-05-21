@@ -8,8 +8,8 @@ const { REST } = require('@discordjs/rest')
 const AsciiTable = require('ascii-table');
 const table = new AsciiTable().setHeading('Slash Commands', 'Stats').setBorder('|', '=', "0", "0")
 
-const TOKEN = process.env.BotToken;
-const CLIENT_ID = process.env.AppID;
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
 
 const rest = new REST({ version: '9' }).setToken(TOKEN);
 
