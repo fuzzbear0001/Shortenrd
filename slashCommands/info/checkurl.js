@@ -2,8 +2,7 @@ const { ApplicationCommandType, ApplicationCommandOptionType } = require('discor
 const { dbPromise } = require('../../drizzle/db');
 const { disposableUrls } = require('../../drizzle/schema');
 const { v4: uuidv4 } = require('uuid');
-const puppeteer = require('puppeteer-core');
-const which = require('which');
+const { chromium } = require('playwright');
 
 module.exports = {
   name: 'check-url',
@@ -23,34 +22,22 @@ module.exports = {
     const url = interaction.options.getString('url');
     const db = await dbPromise;
 
-    await interaction.reply({ content: '🔍 Checking URL behavior, please wait...', ephemeral: true });
-
-    // Find Chrome executable path on your system:
-    let chromePath;
-    try {
-      chromePath = which.sync('google-chrome') || which.sync('chromium-browser') || which.sync('chromium');
-    } catch {
-      return interaction.editReply({
-        content:
-          '❌ Could not find Chrome/Chromium installed on the system. Please install it or run with required dependencies.',
-        ephemeral: true,
-      });
-    }
-
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      executablePath: chromePath,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'], // safer for some servers
+    await interaction.reply({
+      content: '🔍 Checking URL behavior, please wait...',
+      ephemeral: true,
     });
 
-    const page = await browser.newPage();
+    const browser = await chromium.launch();
+    const context = await browser.newContext();
+    const page = await context.newPage();
 
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       const firstUrl = page.url();
 
-      await page.deleteCookie(...(await page.cookies()));
-      await page.reload({ waitUntil: 'domcontentloaded' });
+      // Clear storage and try again
+      await context.clearCookies();
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
       const secondUrl = page.url();
 
       const isDisposable = firstUrl !== secondUrl;
