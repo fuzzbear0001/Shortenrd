@@ -31,6 +31,7 @@ module.exports = {
     const db = await dbPromise;
     const guildId = interaction.guild.id;
 
+    // Fetch existing config from DB
     const existing = await db
       .select()
       .from(configs)
@@ -44,15 +45,31 @@ module.exports = {
       reportChannel: null,
     };
 
-    const adminUserIds = JSON.parse(config.adminUserIds || '[]');
+    let adminUserIds = JSON.parse(config.adminUserIds || '[]');
 
     const embed = new EmbedBuilder()
       .setTitle(`Server Setup for ${interaction.guild.name}`)
-      .setDescription(`Configure admin role, admin users, and report channel.\n\n**Note:** Bot must have a role higher than the admin role.`)
+      .setDescription(
+        'Configure admin role, admin users, and report channel.\n\n**Note:** Bot must have a role higher than the admin role.'
+      )
       .addFields(
-        { name: 'Admin Role', value: config.adminRoleId ? `<@&${config.adminRoleId}>` : 'Not set', inline: true },
-        { name: 'Admin Users', value: adminUserIds.length ? adminUserIds.map(id => `<@${id}>`).join('\n') : 'No admins set', inline: true },
-        { name: 'Report Channel', value: config.reportChannel ? `<#${config.reportChannel}>` : 'Not set', inline: true },
+        {
+          name: 'Admin Role',
+          value: config.adminRoleId ? `<@&${config.adminRoleId}>` : 'Not set',
+          inline: true,
+        },
+        {
+          name: 'Admin Users',
+          value: adminUserIds.length
+            ? adminUserIds.map((id) => `<@${id}>`).join('\n')
+            : 'No admins set',
+          inline: true,
+        },
+        {
+          name: 'Report Channel',
+          value: config.reportChannel ? `<#${config.reportChannel}>` : 'Not set',
+          inline: true,
+        }
       )
       .setColor('Blue')
       .setTimestamp();
@@ -83,137 +100,168 @@ module.exports = {
     await interaction.reply({
       embeds: [embed],
       components: [row1, row2, row3],
+      ephemeral: true,
     });
 
     const message = await interaction.fetchReply();
 
     const collector = message.createMessageComponentCollector({
-      componentType: ComponentType.StringSelect, // fixed from generic SelectMenu
+      componentType: ComponentType.StringSelect,
       time: 120000,
-      filter: i => i.user.id === interaction.user.id,
+      filter: (i) => i.user.id === interaction.user.id,
     });
 
- const collector = message.createMessageComponentCollector({
-  componentType: ComponentType.StringSelect,
-  time: 120000,
-  filter: i => i.user.id === interaction.user.id && i.isStringSelectMenu(),
-});
+    collector.on('collect', async (i) => {
+      try {
+        if (!i.deferred && !i.replied) await i.deferUpdate();
 
-collector.on('collect', async i => {
-  try {
-    // deferUpdate right away
-    await i.deferUpdate();
+        if (i.customId === 'select_admin_role') {
+          const selectedRoleId = i.values[0];
+          const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
+          const botMember = interaction.guild.members.me;
 
-    console.log(`Collected: ${i.customId} -> ${i.values.join(', ')}`);
+          if (!selectedRole) {
+            return i.followUp({
+              content: '❌ The selected role no longer exists.',
+              ephemeral: true,
+            });
+          }
 
-    if (i.customId === 'select_admin_role') {
-      const selectedRoleId = i.values[0];
-      const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
-      const botMember = interaction.guild.members.me;
+          if (selectedRole.position >= botMember.roles.highest.position) {
+            return i.followUp({
+              content: '❌ My role must be above the selected admin role.',
+              ephemeral: true,
+            });
+          }
 
-      if (selectedRole.position >= botMember.roles.highest.position) {
-        return await i.followUp({
-          content: '❌ My role must be above the selected admin role.',
-          ephemeral: true,
-        });
-      }
+          config.adminRoleId = selectedRoleId;
 
-      config.adminRoleId = selectedRoleId;
+          await db
+            .insert(configs)
+            .values({
+              id: guildId,
+              guildId,
+              adminRoleId: selectedRoleId,
+              adminUserIds: JSON.stringify(adminUserIds),
+              reportChannel: config.reportChannel || null,
+            })
+            .onConflictDoUpdate({
+              target: ['guildId'],
+              set: {
+                adminRoleId: selectedRoleId,
+                adminUserIds: JSON.stringify(adminUserIds),
+                reportChannel: config.reportChannel || null,
+              },
+            })
+            .execute();
 
-      await db
-        .insert(configs)
-        .values({
-          id: guildId,
-          guildId,
-          adminRoleId: selectedRoleId,
-          adminUserIds: JSON.stringify(adminUserIds),
-          reportChannel: config.reportChannel || null,
-        })
-        .onConflictDoUpdate({
-          target: configs.guildId,
-          set: { adminRoleId: selectedRoleId },
-        })
-        .execute();
+          embed.spliceFields(0, 1, {
+            name: 'Admin Role',
+            value: `<@&${selectedRoleId}>`,
+            inline: true,
+          });
 
-      embed.spliceFields(0, 1, {
-        name: 'Admin Role',
-        value: `<@&${selectedRoleId}>`,
-        inline: true,
-      });
+          await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
+        } else if (i.customId === 'select_admin_users') {
+          const selectedUserIds = i.values;
 
-      await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
+          // Toggle users: remove if present, add if not
+          for (const userId of selectedUserIds) {
+            if (adminUserIds.includes(userId)) {
+              adminUserIds = adminUserIds.filter((id) => id !== userId);
+            } else {
+              adminUserIds.push(userId);
+            }
+          }
 
-    } else if (i.customId === 'select_admin_users') {
-      const selectedUserIds = i.values;
+          await db
+            .insert(configs)
+            .values({
+              id: guildId,
+              guildId,
+              adminRoleId: config.adminRoleId,
+              adminUserIds: JSON.stringify(adminUserIds),
+              reportChannel: config.reportChannel || null,
+            })
+            .onConflictDoUpdate({
+              target: ['guildId'],
+              set: {
+                adminRoleId: config.adminRoleId,
+                adminUserIds: JSON.stringify(adminUserIds),
+                reportChannel: config.reportChannel || null,
+              },
+            })
+            .execute();
 
-      for (const userId of selectedUserIds) {
-        if (adminUserIds.includes(userId)) {
-          adminUserIds.splice(adminUserIds.indexOf(userId), 1);
-        } else {
-          adminUserIds.push(userId);
+          embed.spliceFields(1, 1, {
+            name: 'Admin Users',
+            value: adminUserIds.length
+              ? adminUserIds.map((id) => `<@${id}>`).join('\n')
+              : 'No admins set',
+            inline: true,
+          });
+
+          await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
+        } else if (i.customId === 'select_report_channel') {
+          const selectedChannelId = i.values[0];
+          const channel = interaction.guild.channels.cache.get(selectedChannelId);
+
+          if (!channel || channel.type !== ChannelType.GuildText) {
+            return i.followUp({
+              content: '❌ Please select a valid text channel.',
+              ephemeral: true,
+            });
+          }
+
+          config.reportChannel = selectedChannelId;
+
+          await db
+            .insert(configs)
+            .values({
+              id: guildId,
+              guildId,
+              adminRoleId: config.adminRoleId,
+              adminUserIds: JSON.stringify(adminUserIds),
+              reportChannel: selectedChannelId,
+            })
+            .onConflictDoUpdate({
+              target: ['guildId'],
+              set: {
+                adminRoleId: config.adminRoleId,
+                adminUserIds: JSON.stringify(adminUserIds),
+                reportChannel: selectedChannelId,
+              },
+            })
+            .execute();
+
+          embed.spliceFields(2, 1, {
+            name: 'Report Channel',
+            value: `<#${selectedChannelId}>`,
+            inline: true,
+          });
+
+          await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
+        }
+      } catch (err) {
+        console.error(`Interaction error: ${err.stack || err.message}`);
+        if (!i.replied && !i.deferred) {
+          try {
+            await i.reply({ content: '❌ Something went wrong during setup.', ephemeral: true });
+          } catch {}
         }
       }
+    });
 
-      await db
-        .insert(configs)
-        .values({
-          id: guildId,
-          guildId,
-          adminRoleId: config.adminRoleId,
-          adminUserIds: JSON.stringify(adminUserIds),
-          reportChannel: config.reportChannel || null,
-        })
-        .onConflictDoUpdate({
-          target: configs.guildId,
-          set: { adminUserIds: JSON.stringify(adminUserIds) },
-        })
-        .execute();
-
-      embed.spliceFields(1, 1, {
-        name: 'Admin Users',
-        value: adminUserIds.length ? adminUserIds.map(id => `<@${id}>`).join('\n') : 'No admins set',
-        inline: true,
-      });
-
-      await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
-
-    } else if (i.customId === 'select_report_channel') {
-      const selectedChannelId = i.values[0];
-
-      config.reportChannel = selectedChannelId;
-
-      await db
-        .insert(configs)
-        .values({
-          id: guildId,
-          guildId,
-          adminRoleId: config.adminRoleId,
-          adminUserIds: JSON.stringify(adminUserIds),
-          reportChannel: selectedChannelId,
-        })
-        .onConflictDoUpdate({
-          target: configs.guildId,
-          set: { reportChannel: selectedChannelId },
-        })
-        .execute();
-
-      embed.spliceFields(2, 1, {
-        name: 'Report Channel',
-        value: `<#${selectedChannelId}>`,
-        inline: true,
-      });
-
-      await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
-    }
-  } catch (err) {
-    console.error(`Interaction error: ${err.stack || err.message}`);
-
-    if (!i.replied && !i.deferred) {
+    collector.on('end', async () => {
       try {
-        await i.reply({ content: '❌ Something went wrong during setup.', ephemeral: true });
-      } catch {}
-    }
-  }
-});
+        await interaction.editReply({
+          content: '✅ Setup session ended.',
+          embeds: [embed],
+          components: [],
+        });
+      } catch (e) {
+        console.error('Failed to end setup session:', e.message);
+      }
+    });
   },
 };
