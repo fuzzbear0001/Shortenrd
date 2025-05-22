@@ -23,7 +23,12 @@ module.exports = {
     const guildId = interaction.guild.id;
     const userId = interaction.user.id;
 
-    const [config] = await db.select().from(configs).where(eq(configs.guildId, guildId)).execute();
+    const [config] = await db
+      .select()
+      .from(configs)
+      .where(eq(configs.guildId, guildId))
+      .execute();
+
     const adminUserIds = Array.isArray(config?.adminUserIds)
       ? config.adminUserIds
       : JSON.parse(config?.adminUserIds || '[]');
@@ -43,7 +48,6 @@ module.exports = {
       });
     }
 
-    // Initial embed and select menu
     const embed = new EmbedBuilder()
       .setTitle('🛡️ Private IP Blocking')
       .setDescription('Select an action when a private or LAN IP is detected in messages.')
@@ -66,7 +70,6 @@ module.exports = {
       ephemeral: true
     });
 
-    // Auto-disable components after 30 seconds
     setTimeout(async () => {
       try {
         const message = await interaction.fetchReply();
@@ -77,12 +80,9 @@ module.exports = {
           return newRow;
         });
         await interaction.editReply({ components: disabledComponents });
-      } catch (e) {
-        // ignore errors if message deleted or no longer exists
-      }
+      } catch {}
     }, 30_000);
 
-    // Collect select menu interaction
     const selectCollector = interaction.channel.createMessageComponentCollector({
       componentType: ComponentType.StringSelect,
       time: 60_000,
@@ -93,24 +93,12 @@ module.exports = {
     selectCollector.on('collect', async selection => {
       const action = selection.values[0];
 
-      // Properly disable the select menu by recreating it:
       const disabledSelectRow = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('select_action')
-          .setPlaceholder('Choose action')
-          .setDisabled(true)
-          .addOptions([
-            { label: 'Warn user', value: 'warn', description: 'Send a warning message' },
-            { label: 'Delete message', value: 'delete', description: 'Delete the message silently' },
-            { label: 'Delete + Log', value: 'delete-log', description: 'Delete and log the action' }
-          ])
+        StringSelectMenuBuilder.from(selection.component).setDisabled(true)
       );
 
-      await selection.update({
-        components: [disabledSelectRow]
-      });
+      await selection.update({ components: [disabledSelectRow] });
 
-      // Next embed with buttons
       const nextEmbed = new EmbedBuilder()
         .setTitle('⚙️ IP Blocking Mode')
         .setDescription('Would you like to **enable** or **disable** private IP blocking?\n\nYou can also open optional advanced settings below.')
@@ -139,7 +127,6 @@ module.exports = {
         components: [buttonsRow, advSettingsRow]
       });
 
-      // Auto-disable buttons after 30 sec
       setTimeout(async () => {
         try {
           const msg = await interaction.fetchReply();
@@ -150,7 +137,7 @@ module.exports = {
             return newRow;
           });
           await interaction.editReply({ components: disabled });
-        } catch { }
+        } catch {}
       }, 30_000);
 
       const buttonCollector = interaction.channel.createMessageComponentCollector({
@@ -160,7 +147,6 @@ module.exports = {
       });
 
       buttonCollector.on('collect', async button => {
-        // Disable buttons immediately
         const disabledButtons = button.message.components.map(row => {
           const newRow = ActionRowBuilder.from(row);
           newRow.components.forEach(c => c.setDisabled(true));
@@ -187,7 +173,6 @@ module.exports = {
           return button.followUp({ embeds: [advEmbed], components: [advRow], ephemeral: true });
         }
 
-        // Enable or disable blocking
         const enabled = button.customId === 'enable_blocking';
 
         await db
@@ -223,7 +208,6 @@ module.exports = {
         });
       });
 
-      // Advanced select collector
       const advancedCollector = interaction.channel.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         time: 60_000,
@@ -231,21 +215,11 @@ module.exports = {
       });
 
       advancedCollector.on('collect', async i => {
-        // Disable advanced select properly
         const disabledAdvRow = new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId('advanced_option_select')
-            .setPlaceholder('Choose setting to configure')
-            .setDisabled(true)
-            .addOptions([
-              { label: 'CIDR Ranges', value: 'cidr' },
-              { label: 'Restrict Channels', value: 'channels' }
-            ])
+          StringSelectMenuBuilder.from(i.component).setDisabled(true)
         );
 
-        await i.update({
-          components: [disabledAdvRow]
-        });
+        await i.update({ components: [disabledAdvRow] });
 
         const value = i.values[0];
 
@@ -277,14 +251,14 @@ module.exports = {
           const channelOptions = interaction.guild.channels.cache
             .filter(c => c.type === ChannelType.GuildText)
             .map(c => ({ label: c.name, value: c.id }))
-            .slice(0, 25); // Max 25 options
+            .slice(0, 25);
 
           const channelDropdown = new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
               .setCustomId('channel_select')
               .setPlaceholder('Select channels to restrict IP blocking to')
               .setMinValues(1)
-              .setMaxValues(Math.min(channelOptions.length, 25))
+              .setMaxValues(channelOptions.length)
               .addOptions(channelOptions)
           );
 
@@ -302,13 +276,8 @@ module.exports = {
           });
 
           channelCollector.on('collect', async i2 => {
-            // Disable channel select
             const disabledRow = new ActionRowBuilder().addComponents(
-              new StringSelectMenuBuilder()
-                .setCustomId('channel_select')
-                .setPlaceholder('Select channels to restrict IP blocking to')
-                .setDisabled(true)
-                .addOptions(channelOptions)
+              StringSelectMenuBuilder.from(i2.component).setDisabled(true)
             );
             await i2.update({ components: [disabledRow] });
 
