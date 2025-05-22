@@ -1,10 +1,13 @@
 const {
   ApplicationCommandType,
   ActionRowBuilder,
-  StringSelectMenuBuilder,
+  RoleSelectMenuBuilder,
+  UserSelectMenuBuilder,
   ChannelSelectMenuBuilder,
   ComponentType,
   EmbedBuilder,
+  ChannelType,
+  PermissionsBitField,
 } = require('discord.js');
 
 const { eq } = require('drizzle-orm');
@@ -18,10 +21,13 @@ module.exports = {
   cooldown: 10000,
   run: async (client, interaction) => {
     if (interaction.user.id !== interaction.guild.ownerId) {
-      return interaction.reply({ content: 'Only the server owner can run this setup command.', flags: 64 });
+      return interaction.reply({
+        content: 'Only the server owner can run this setup command.',
+        ephemeral: true,
+      });
     }
 
-    await interaction.guild.members.fetch(); // ensure full member cache
+    await interaction.guild.members.fetch();
     const db = await dbPromise;
     const guildId = interaction.guild.id;
 
@@ -52,46 +58,24 @@ module.exports = {
       .setTimestamp();
 
     // Role select
-    const roleSelect = new StringSelectMenuBuilder()
+    const roleSelect = new RoleSelectMenuBuilder()
       .setCustomId('select_admin_role')
       .setPlaceholder('Select Admin Role')
-   .addOptions(
-  interaction.guild.roles.cache
-    .filter(r => r.editable && r.id !== interaction.guild.id)
-    .first(25) // limit to 25 roles
-    .map(role => ({
-      label: role.name.slice(0, 100),
-      value: role.id,
-      description: role.id === config.adminRoleId
-        ? '✅ This role is currently set as admin.'
-        : undefined,
-    }))
-)
+      .setMinValues(1)
+      .setMaxValues(1);
 
     // Member select
-    const memberOptions = interaction.guild.members.cache
-  .filter(m => !m.user.bot)
-  .first(25) // 👈 only take the first 25 to stay within Discord's limit
-  .map(member => ({
-    label: member.user.username.slice(0, 100),
-    value: member.id,
-    description: adminUserIds.includes(member.id)
-      ? 'Already in admin list.'
-      : undefined,
-  }));
-
-    const memberSelect = new StringSelectMenuBuilder()
+    const memberSelect = new UserSelectMenuBuilder()
       .setCustomId('select_admin_users')
       .setPlaceholder('Add/Remove Admin Users')
       .setMinValues(0)
-      .setMaxValues(Math.min(memberOptions.length, 25)) // Fix for API error
-      .addOptions(memberOptions);
+      .setMaxValues(25);
 
     // Channel select
     const channelSelect = new ChannelSelectMenuBuilder()
       .setCustomId('select_report_channel')
       .setPlaceholder('Select Report Channel')
-      .setChannelTypes([0]);
+      .setChannelTypes([ChannelType.GuildText]);
 
     const row1 = new ActionRowBuilder().addComponents(roleSelect);
     const row2 = new ActionRowBuilder().addComponents(memberSelect);
@@ -100,11 +84,11 @@ module.exports = {
     await interaction.reply({
       embeds: [embed],
       components: [row1, row2, row3],
-      flags: 64,
+      ephemeral: true,
     });
 
     const collector = interaction.channel.createMessageComponentCollector({
-      componentType: ComponentType.StringSelect,
+      componentType: ComponentType.SelectMenu,
       time: 120000,
       filter: i => i.user.id === interaction.user.id,
     });
@@ -113,11 +97,11 @@ module.exports = {
       try {
         if (i.customId === 'select_admin_role') {
           const selectedRoleId = i.values[0];
-          const botMember = interaction.guild.members.me;
           const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
+          const botMember = interaction.guild.members.me;
 
           if (selectedRole.position >= botMember.roles.highest.position) {
-            return i.reply({ content: '❌ My role must be above the selected admin role.', flags: 64 });
+            return i.reply({ content: '❌ My role must be above the selected admin role.', ephemeral: true });
           }
 
           await db
@@ -127,7 +111,7 @@ module.exports = {
               guildId,
               adminRoleId: selectedRoleId,
               adminUserIds: JSON.stringify(adminUserIds),
-              reportChannel: config.reportChannel || '0', // dummy fallback if null
+              reportChannel: config.reportChannel || '0',
             })
             .onConflictDoUpdate({
               target: configs.guildId,
@@ -136,19 +120,19 @@ module.exports = {
             .execute();
 
           config.adminRoleId = selectedRoleId;
-          embed.fields[0].value = `<@&${selectedRoleId}>`;
+          embed.data.fields[0].value = `<@&${selectedRoleId}>`;
           await i.update({ embeds: [embed], components: [row1, row2, row3] });
 
         } else if (i.customId === 'select_admin_users') {
           const selectedUserIds = i.values;
 
-          selectedUserIds.forEach(userId => {
+          for (const userId of selectedUserIds) {
             if (adminUserIds.includes(userId)) {
               adminUserIds.splice(adminUserIds.indexOf(userId), 1);
             } else {
               adminUserIds.push(userId);
             }
-          });
+          }
 
           await db
             .insert(configs)
@@ -165,8 +149,7 @@ module.exports = {
             })
             .execute();
 
-          config.adminUserIds = JSON.stringify(adminUserIds);
-          embed.fields[1].value = adminUserIds.length
+          embed.data.fields[1].value = adminUserIds.length
             ? adminUserIds.map(id => `<@${id}>`).join('\n')
             : 'No admins set';
 
@@ -191,12 +174,13 @@ module.exports = {
             .execute();
 
           config.reportChannel = selectedChannelId;
-          embed.fields[2].value = `<#${selectedChannelId}>`;
+          embed.data.fields[2].value = `<#${selectedChannelId}>`;
+
           await i.update({ embeds: [embed], components: [row1, row2, row3] });
         }
       } catch (err) {
         console.error(err);
-        await i.reply({ content: '❌ Something went wrong during setup.', flags: 64 });
+        await i.reply({ content: '❌ Something went wrong during setup.', ephemeral: true });
       }
     });
 
