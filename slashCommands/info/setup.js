@@ -7,7 +7,6 @@ const {
   ComponentType,
   EmbedBuilder,
   ChannelType,
-  InteractionResponseFlags,
 } = require('discord.js');
 
 const { eq } = require('drizzle-orm');
@@ -25,7 +24,7 @@ module.exports = {
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({
         content: 'Only the server owner can run this setup command.',
-        flags: InteractionResponseFlags.Ephemeral,
+        ephemeral: true,
       });
     }
 
@@ -96,7 +95,7 @@ module.exports = {
     await interaction.reply({
       embeds: [embed],
       components: [row1, row2, row3],
-      flags: InteractionResponseFlags.Ephemeral,
+      ephemeral: true,
     });
 
     const message = await interaction.fetchReply();
@@ -125,7 +124,7 @@ module.exports = {
           if (!selectedRole) {
             return await i.followUp({
               content: '❌ Selected role not found.',
-              flags: InteractionResponseFlags.Ephemeral,
+              ephemeral: true,
             });
           }
 
@@ -133,7 +132,7 @@ module.exports = {
           if (selectedRole.position >= botMember.roles.highest.position) {
             return await i.followUp({
               content: '❌ My role must be higher than the selected admin role.',
-              flags: InteractionResponseFlags.Ephemeral,
+              ephemeral: true,
             });
           }
 
@@ -232,7 +231,7 @@ module.exports = {
           try {
             await i.reply({
               content: '❌ Something went wrong during setup.',
-              flags: InteractionResponseFlags.Ephemeral,
+              ephemeral: true,
             });
           } catch {}
         }
