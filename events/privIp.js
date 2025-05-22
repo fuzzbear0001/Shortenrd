@@ -5,6 +5,14 @@ const { eq } = require('drizzle-orm');
 const client = require('..');
 const ipaddr = require('ipaddr.js');
 
+function safeParse(json, fallback = []) {
+  try {
+    return JSON.parse(json || '[]');
+  } catch {
+    return fallback;
+  }
+}
+
 client.on('messageCreate', async message => {
   if (message.author.bot || !message.guild) return;
 
@@ -14,9 +22,9 @@ client.on('messageCreate', async message => {
   const [config] = await db.select().from(configs).where(eq(configs.guildId, guildId)).execute();
   if (!config || !config.blockPrivateIPs) return;
 
-  const adminUserIds = JSON.parse(config.adminUserIds || '[]');
-  const allowedChannels = JSON.parse(config.allowedChannels || '[]');
-  const customRanges = JSON.parse(config.customBlockedRanges || '[]');
+  const adminUserIds = safeParse(config.adminUserIds);
+  const allowedChannels = safeParse(config.allowedChannels);
+  const customRanges = safeParse(config.customBlockedRanges);
 
   // Respect channel filter
   if (allowedChannels.length && !allowedChannels.includes(message.channel.id)) return;
