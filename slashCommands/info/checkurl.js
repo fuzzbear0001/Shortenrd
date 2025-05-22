@@ -1,63 +1,67 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { ApplicationCommandType, ApplicationCommandOptionType } = require('discord.js');
 const { dbPromise } = require('../../drizzle/db');
 const { disposableUrls } = require('../../drizzle/schema');
 const { v4: uuidv4 } = require('uuid');
 const puppeteer = require('puppeteer');
 
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('check-url')
-    .setDescription('Checks if a URL is dynamically resolving.')
-    .addStringOption(option =>
-      option.setName('url')
-        .setDescription('The URL to test.')
-        .setRequired(true)
-    ),
-  async execute(interaction) {
-    const url = interaction.options.getString('url');
-    const db = await dbPromise;
+	name: 'check-url',
+	description: 'Checks if a URL is dynamically resolving.',
+	type: ApplicationCommandType.ChatInput,
+	cooldown: 10000,
+	options: [
+		{
+			name: 'url',
+			description: 'The URL to test.',
+			type: ApplicationCommandOptionType.String,
+			required: true
+		}
+	],
 
-    await interaction.reply({ content: '🔍 Checking URL behavior, please wait...', ephemeral: true });
+	run: async (client, interaction) => {
+		const url = interaction.options.getString('url');
+		const db = await dbPromise;
 
-    const browser = await puppeteer.launch({ headless: 'new' });
-    const page = await browser.newPage();
+		await interaction.reply({ content: '🔍 Checking URL behavior, please wait...', ephemeral: true });
 
-    try {
-      // First visit
-      await page.goto(url, { waitUntil: 'domcontentloaded' });
-      const firstUrl = page.url();
+		const browser = await puppeteer.launch({ headless: 'new' });
+		const page = await browser.newPage();
 
-      // Clear cookies/IP context
-      await page.deleteCookie(...await page.cookies());
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      const secondUrl = page.url();
+		try {
+			// First visit
+			await page.goto(url, { waitUntil: 'domcontentloaded' });
+			const firstUrl = page.url();
 
-      const isDisposable = firstUrl !== secondUrl;
+			// Clear cookies & reload
+			await page.deleteCookie(...(await page.cookies()));
+			await page.reload({ waitUntil: 'domcontentloaded' });
+			const secondUrl = page.url();
 
-      // Save to DB
-      await db.insert(disposableUrls).values({
-        id: uuidv4(),
-        originalUrl: url,
-        firstResolvedUrl: firstUrl,
-        secondResolvedUrl: secondUrl,
-        isDisposable,
-        detectedAt: new Date().toISOString()
-      });
+			const isDisposable = firstUrl !== secondUrl;
 
-      await interaction.editReply({
-        content: isDisposable
-          ? '⚠️ This link appears to be dynamically resolving to multiple destinations!'
-          : '✅ This link resolves consistently.',
-        ephemeral: true
-      });
-    } catch (err) {
-      console.error(err);
-      await interaction.editReply({
-        content: '❌ Failed to check the URL. It may be invalid or unreachable.',
-        ephemeral: true
-      });
-    } finally {
-      await browser.close();
-    }
-  }
+			await db.insert(disposableUrls).values({
+				id: uuidv4(),
+				originalUrl: url,
+				firstResolvedUrl: firstUrl,
+				secondResolvedUrl: secondUrl,
+				isDisposable,
+				detectedAt: new Date().toISOString()
+			});
+
+			await interaction.editReply({
+				content: isDisposable
+					? '⚠️ This link appears to be dynamically resolving to multiple destinations!'
+					: '✅ This link resolves consistently.',
+				ephemeral: true
+			});
+		} catch (err) {
+			console.error(err);
+			await interaction.editReply({
+				content: '❌ Failed to check the URL. It may be invalid or unreachable.',
+				ephemeral: true
+			});
+		} finally {
+			await browser.close();
+		}
+	}
 };
