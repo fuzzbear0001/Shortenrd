@@ -87,7 +87,9 @@ module.exports = {
       ephemeral: true,
     });
 
-    const collector = interaction.channel.createMessageComponentCollector({
+    const message = await interaction.fetchReply();
+
+const collector = message.createMessageComponentCollector({
   componentType: ComponentType.SelectMenu,
   time: 120000,
   filter: i => i.user.id === interaction.user.id,
