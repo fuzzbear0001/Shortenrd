@@ -26,23 +26,25 @@ client.on('messageCreate', async message => {
   const allowedChannels = safeParse(config.allowedChannels);
   const customRanges = safeParse(config.customBlockedRanges);
 
-  // Respect channel filter
-  if (allowedChannels.length && !allowedChannels.includes(message.channel.id)) return;
+  // Respect channel filter (only apply to allowed channels)
+  if (allowedChannels.length > 0 && !allowedChannels.includes(message.channel.id)) return;
 
   // Dynamically import ip-regex ESM
   const ipRegex = (await import('ip-regex')).default;
   const ipMatches = [...message.content.matchAll(ipRegex())].map(m => m[0]);
 
-  // Define private IP ranges + custom ranges
-  const defaultRanges = [
-    ['10.0.0.0', '10.255.255.255'],
-    ['172.16.0.0', '172.31.255.255'],
-    ['192.168.0.0', '192.168.255.255'],
-    ['127.0.0.0', '127.255.255.255'],
-    ['::1', '::1'],
+  // Define proper default CIDR private ranges
+  const defaultCIDRs = [
+    '10.0.0.0/8',
+    '172.16.0.0/12',
+    '192.168.0.0/16',
+    '127.0.0.0/8',
+    '::1/128',
+    'fc00::/7', // IPv6 Unique local
+    'fe80::/10', // Link-local
   ];
 
-  const parsedCustom = customRanges
+  const parsedCIDRs = [...defaultCIDRs, ...customRanges]
     .map(cidr => {
       try {
         return ipaddr.parseCIDR(cidr);
@@ -52,28 +54,21 @@ client.on('messageCreate', async message => {
     })
     .filter(Boolean);
 
-  const allBlockedRanges = [
-    ...defaultRanges.map(([start]) => ipaddr.parseCIDR(`${start}/${ipaddr.parse(start).kind() === 'ipv4' ? '8' : '128'}`)),
-    ...parsedCustom
-  ];
-
-  // Check if an IP is private or blocked
-  const isPrivateIP = ip => {
+  const isBlockedIP = ip => {
     try {
       const parsed = ipaddr.parse(ip);
-      return allBlockedRanges.some(range => parsed.match(range));
+      return parsedCIDRs.some(range => parsed.match(range));
     } catch {
       return false;
     }
   };
 
-  const badIP = ipMatches.find(ip => isPrivateIP(ip));
+  const badIP = ipMatches.find(ip => isBlockedIP(ip));
   if (!badIP) return;
 
-  // Build warning embed
   const embed = new EmbedBuilder()
     .setColor('Red')
-    .setDescription(`🛑 That link includes a private or blocked IP address: \`${badIP}\``);
+    .setDescription(`🛑 That message contains a blocked IP address: \`${badIP}\``);
 
   switch (config.blockAction) {
     case 'warn':
