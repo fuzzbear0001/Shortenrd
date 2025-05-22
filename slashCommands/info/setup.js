@@ -84,7 +84,6 @@ module.exports = {
     await interaction.reply({
       embeds: [embed],
       components: [row1, row2, row3],
-      ephemeral: true,
     });
 
     const message = await interaction.fetchReply();
