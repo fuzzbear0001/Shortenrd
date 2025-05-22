@@ -1,14 +1,23 @@
-const { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const {
+  ApplicationCommandType,
+  EmbedBuilder,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  PermissionsBitField
+} = require('discord.js');
+
 const { dbPromise } = require('../../drizzle/db');
 const { configs } = require('../../drizzle/schema');
 const { eq } = require('drizzle-orm');
 
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('block-ip-mode')
-    .setDescription('Configure private IP blocking'),
-  
-  async execute(interaction) {
+  name: 'block-ip-mode',
+  description: 'Configure private IP blocking.',
+  type: ApplicationCommandType.ChatInput,
+
+  run: async (client, interaction) => {
     const db = await dbPromise;
     const guildId = interaction.guild.id;
     const userId = interaction.user.id;
@@ -55,7 +64,7 @@ module.exports = {
 
       const confirmEmbed = new EmbedBuilder()
         .setTitle('⚙️ Additional Settings')
-        .setDescription('React with a ✅ to enable or ❌ to disable IP blocking.\n\nThen, respond with:\n• Custom CIDR ranges (comma-separated)\n• Channel IDs (comma-separated) to restrict checks')
+        .setDescription('Click ✅ to enable or ❌ to disable IP blocking.\n\nThen, provide:\n• CIDR ranges (comma-separated)\n• Channel IDs to restrict to (comma-separated or `all`)')
         .setColor('Green');
 
       const buttons = new ActionRowBuilder().addComponents(
@@ -80,7 +89,7 @@ module.exports = {
       buttonCollector.on('collect', async button => {
         const enabled = button.customId === 'enable_blocking';
 
-        await button.reply({ content: '✍️ Please now reply with the **CIDR ranges** to block (comma-separated).', ephemeral: true });
+        await button.reply({ content: '✍️ Now reply with the **CIDR ranges** to block (comma-separated).', ephemeral: true });
 
         const cidrCollector = button.channel.createMessageCollector({
           filter: m => m.author.id === interaction.user.id,
@@ -91,7 +100,7 @@ module.exports = {
         cidrCollector.on('collect', async cidrMsg => {
           const ranges = cidrMsg.content.split(',').map(r => r.trim());
 
-          await cidrMsg.reply({ content: '📢 Now send the **channel IDs** to restrict IP checking to (comma-separated), or type `all`.', ephemeral: true });
+          await cidrMsg.reply({ content: '📢 Now send the **channel IDs** (comma-separated), or type `all`.', ephemeral: true });
 
           const channelCollector = button.channel.createMessageCollector({
             filter: m => m.author.id === interaction.user.id,
