@@ -64,14 +64,32 @@ module.exports = {
       ephemeral: true
     });
 
+    // Disable the select menu after 30 seconds automatically
+    setTimeout(async () => {
+      try {
+        const disabledRow = new ActionRowBuilder().addComponents(
+          actionSelect.components[0].setDisabled(true)
+        );
+        await interaction.editReply({ components: [disabledRow] });
+      } catch (e) {
+        // Fail silently, e.g. if interaction deleted or expired
+      }
+    }, 30_000);
+
     const collector = interaction.channel.createMessageComponentCollector({
-      filter: i => i.user.id === interaction.user.id,
+      filter: i => i.user.id === interaction.user.id && i.message.id === interaction.id,
       time: 60000,
       max: 1
     });
 
     collector.on('collect', async selection => {
       const action = selection.values[0];
+
+      // Disable the select menu instantly after selection
+      const disabledRow = new ActionRowBuilder().addComponents(
+        selection.component.setDisabled(true)
+      );
+      await selection.update({ components: [disabledRow] });
 
       const nextEmbed = new EmbedBuilder()
         .setTitle('⚙️ IP Blocking Mode')
@@ -96,10 +114,31 @@ module.exports = {
           .setStyle(ButtonStyle.Secondary)
       );
 
-      await selection.update({
+      await selection.followUp({
         embeds: [nextEmbed],
-        components: [actionRow, configRow]
+        components: [actionRow, configRow],
+        ephemeral: true
       });
+
+      // Auto-disable buttons after 30 seconds
+      const msg = await interaction.fetchReply();
+
+      const disableButtons = async () => {
+        try {
+          const disabledActionRow1 = new ActionRowBuilder().addComponents(
+            actionRow.components.map(btn => btn.setDisabled(true))
+          );
+          const disabledActionRow2 = new ActionRowBuilder().addComponents(
+            configRow.components.map(btn => btn.setDisabled(true))
+          );
+          await interaction.editReply({
+            components: [disabledActionRow1, disabledActionRow2]
+          });
+        } catch {
+          // Ignore errors if already deleted or expired
+        }
+      };
+      setTimeout(disableButtons, 30_000);
 
       const buttonCollector = interaction.channel.createMessageComponentCollector({
         filter: i => i.user.id === interaction.user.id,
@@ -107,6 +146,17 @@ module.exports = {
       });
 
       buttonCollector.on('collect', async button => {
+        // Disable buttons immediately on interaction
+        const disabledActionRow1 = new ActionRowBuilder().addComponents(
+          actionRow.components.map(btn => btn.setDisabled(true))
+        );
+        const disabledActionRow2 = new ActionRowBuilder().addComponents(
+          configRow.components.map(btn => btn.setDisabled(true))
+        );
+        await button.update({
+          components: [disabledActionRow1, disabledActionRow2]
+        });
+
         if (button.customId === 'advanced_config') {
           const advEmbed = new EmbedBuilder()
             .setTitle('⚙️ Advanced Settings')
@@ -123,7 +173,7 @@ module.exports = {
               ])
           );
 
-          return button.reply({ embeds: [advEmbed], components: [advRow], ephemeral: true });
+          return button.followUp({ embeds: [advEmbed], components: [advRow], ephemeral: true });
         }
 
         const enabled = button.customId === 'enable_blocking';
@@ -150,7 +200,7 @@ module.exports = {
             }
           });
 
-        await button.reply({
+        await button.followUp({
           embeds: [
             new EmbedBuilder()
               .setColor(enabled ? 'Green' : 'Red')
@@ -162,14 +212,25 @@ module.exports = {
       });
 
       // Advanced dropdown collector
-      client.on('interactionCreate', async i => {
+      const advancedCollector = interaction.channel.createMessageComponentCollector({
+        filter: i => i.user.id === interaction.user.id,
+        time: 60000
+      });
+
+      advancedCollector.on('collect', async i => {
         if (!i.isStringSelectMenu() || i.user.id !== interaction.user.id) return;
 
         if (i.customId === 'advanced_option_select') {
           const value = i.values[0];
 
+          // Disable the select menu after selection
+          const disabledAdvRow = new ActionRowBuilder().addComponents(
+            i.component.setDisabled(true)
+          );
+          await i.update({ components: [disabledAdvRow] });
+
           if (value === 'cidr') {
-            await i.reply({
+            await i.followUp({
               content: '📥 Reply with the **CIDR ranges** to block (comma-separated).',
               ephemeral: true
             });
@@ -207,7 +268,7 @@ module.exports = {
                 .addOptions(channelOptions)
             );
 
-            await i.reply({
+            await i.followUp({
               embeds: [new EmbedBuilder().setTitle('📍 Select Channels').setDescription('Choose where IP blocking will apply.').setColor('Blue')],
               components: [channelDropdown],
               ephemeral: true
@@ -216,6 +277,12 @@ module.exports = {
         }
 
         if (i.customId === 'channel_select') {
+          // Disable the select menu immediately after selection
+          const disabledChannelsRow = new ActionRowBuilder().addComponents(
+            i.component.setDisabled(true)
+          );
+          await i.update({ components: [disabledChannelsRow] });
+
           const channels = i.values;
 
           await db.update(configs)
@@ -223,7 +290,7 @@ module.exports = {
             .where(eq(configs.guildId, guildId))
             .execute();
 
-          await i.reply({
+          await i.followUp({
             content: `✅ Restricted to ${channels.length} channel(s).`,
             ephemeral: true
           });
