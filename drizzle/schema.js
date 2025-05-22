@@ -14,9 +14,10 @@ const configs = pgTable('configs', {
   strictMode: boolean('strict_mode').notNull().default(false),
   adminRoleId: varchar('admin_role_id', { length: 255 }).default(null),
   adminUserIds: json('admin_user_ids').default('[]'),
+  blockPrivateIPs: boolean('block_private_ips').notNull().default(false),
+  blockAction: varchar('block_action', { length: 255 }).default('warn'), // warn | delete | delete-log
+  allowedChannels: json('allowed_channels').default('[]'), // array of allowed channel IDs
+  customBlockedRanges: json('custom_blocked_ranges').default('[]'), // array of CIDR strings or IPs
 });
 
-module.exports = {
-  users,
-  configs,
-};
+module.exports = { users, configs };
