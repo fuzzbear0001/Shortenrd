@@ -49,7 +49,7 @@ module.exports = {
       .setDescription('Select an action when a private or LAN IP is detected in messages.')
       .setColor('Blurple');
 
-    const actionSelect = new ActionRowBuilder().addComponents(
+    const actionSelectRow = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId('select_action')
         .setPlaceholder('Choose action')
@@ -62,11 +62,11 @@ module.exports = {
 
     await interaction.reply({
       embeds: [embed],
-      components: [actionSelect],
+      components: [actionSelectRow],
       ephemeral: true
     });
 
-    // Auto-disable after 30 sec
+    // Auto-disable components after 30 seconds
     setTimeout(async () => {
       try {
         const message = await interaction.fetchReply();
@@ -78,7 +78,7 @@ module.exports = {
         });
         await interaction.editReply({ components: disabledComponents });
       } catch (e) {
-        // Ignore errors if message already deleted or no longer exists
+        // ignore errors if message deleted or no longer exists
       }
     }, 30_000);
 
@@ -93,21 +93,30 @@ module.exports = {
     selectCollector.on('collect', async selection => {
       const action = selection.values[0];
 
-      // Disable the select menu immediately
+      // Properly disable the select menu by recreating it:
       const disabledSelectRow = new ActionRowBuilder().addComponents(
-        selection.component.setDisabled(true)
+        new StringSelectMenuBuilder()
+          .setCustomId('select_action')
+          .setPlaceholder('Choose action')
+          .setDisabled(true)
+          .addOptions([
+            { label: 'Warn user', value: 'warn', description: 'Send a warning message' },
+            { label: 'Delete message', value: 'delete', description: 'Delete the message silently' },
+            { label: 'Delete + Log', value: 'delete-log', description: 'Delete and log the action' }
+          ])
       );
+
       await selection.update({
         components: [disabledSelectRow]
       });
 
-      // Prepare next embed with buttons
+      // Next embed with buttons
       const nextEmbed = new EmbedBuilder()
         .setTitle('⚙️ IP Blocking Mode')
         .setDescription('Would you like to **enable** or **disable** private IP blocking?\n\nYou can also open optional advanced settings below.')
         .setColor('Green');
 
-      const actionRow = new ActionRowBuilder().addComponents(
+      const buttonsRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId('enable_blocking')
           .setLabel('✅ Enable')
@@ -118,17 +127,16 @@ module.exports = {
           .setStyle(ButtonStyle.Danger)
       );
 
-      const configRow = new ActionRowBuilder().addComponents(
+      const advSettingsRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId('advanced_config')
           .setLabel('⚙️ Advanced Settings')
           .setStyle(ButtonStyle.Secondary)
       );
 
-      // Edit original reply to show buttons
       await interaction.editReply({
         embeds: [nextEmbed],
-        components: [actionRow, configRow]
+        components: [buttonsRow, advSettingsRow]
       });
 
       // Auto-disable buttons after 30 sec
@@ -145,7 +153,6 @@ module.exports = {
         } catch { }
       }, 30_000);
 
-      // Button collector for enable/disable/advanced
       const buttonCollector = interaction.channel.createMessageComponentCollector({
         componentType: ComponentType.Button,
         time: 60_000,
@@ -153,7 +160,7 @@ module.exports = {
       });
 
       buttonCollector.on('collect', async button => {
-        // Disable all buttons immediately
+        // Disable buttons immediately
         const disabledButtons = button.message.components.map(row => {
           const newRow = ActionRowBuilder.from(row);
           newRow.components.forEach(c => c.setDisabled(true));
@@ -180,7 +187,7 @@ module.exports = {
           return button.followUp({ embeds: [advEmbed], components: [advRow], ephemeral: true });
         }
 
-        // enable or disable blocking
+        // Enable or disable blocking
         const enabled = button.customId === 'enable_blocking';
 
         await db
@@ -216,7 +223,7 @@ module.exports = {
         });
       });
 
-      // Advanced select menu collector scoped to this channel & user
+      // Advanced select collector
       const advancedCollector = interaction.channel.createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
         time: 60_000,
@@ -224,10 +231,18 @@ module.exports = {
       });
 
       advancedCollector.on('collect', async i => {
-        // Disable the advanced select menu immediately
+        // Disable advanced select properly
         const disabledAdvRow = new ActionRowBuilder().addComponents(
-          i.component.setDisabled(true)
+          new StringSelectMenuBuilder()
+            .setCustomId('advanced_option_select')
+            .setPlaceholder('Choose setting to configure')
+            .setDisabled(true)
+            .addOptions([
+              { label: 'CIDR Ranges', value: 'cidr' },
+              { label: 'Restrict Channels', value: 'channels' }
+            ])
         );
+
         await i.update({
           components: [disabledAdvRow]
         });
@@ -289,7 +304,11 @@ module.exports = {
           channelCollector.on('collect', async i2 => {
             // Disable channel select
             const disabledRow = new ActionRowBuilder().addComponents(
-              i2.component.setDisabled(true)
+              new StringSelectMenuBuilder()
+                .setCustomId('channel_select')
+                .setPlaceholder('Select channels to restrict IP blocking to')
+                .setDisabled(true)
+                .addOptions(channelOptions)
             );
             await i2.update({ components: [disabledRow] });
 
