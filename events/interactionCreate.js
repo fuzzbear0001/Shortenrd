@@ -1,4 +1,4 @@
-const { EmbedBuilder, Collection, PermissionsBitField } = require('discord.js');
+const { EmbedBuilder, Collection, PermissionsBitField, InteractionType } = require('discord.js');
 const ms = require('ms');
 const client = require('..');
 const config = require('../config.json');
@@ -6,59 +6,90 @@ const config = require('../config.json');
 const cooldown = new Collection();
 
 client.on('interactionCreate', async interaction => {
-	const slashCommand = client.slashCommands.get(interaction.commandName);
-		if (interaction.type == 4) {
-			if(slashCommand.autocomplete) {
-				const choices = [];
-				await slashCommand.autocomplete(interaction, choices)
-			}
-		}
-		if (!interaction.type == 2) return;
-	
-		if(!slashCommand) return client.slashCommands.delete(interaction.commandName);
-		try {
-			if(slashCommand.cooldown) {
-				if(cooldown.has(`slash-${slashCommand.name}${interaction.user.id}`)) return interaction.reply({ content: config.messages["COOLDOWN_MESSAGE"].replace('<duration>', ms(cooldown.get(`slash-${slashCommand.name}${interaction.user.id}`) - Date.now(), {long : true}) ) })
-				if(slashCommand.userPerms || slashCommand.botPerms) {
-					if(!interaction.memberPermissions.has(PermissionsBitField.resolve(slashCommand.userPerms || []))) {
-						const userPerms = new EmbedBuilder()
-						.setDescription(`🚫 ${interaction.user}, You don't have \`${slashCommand.userPerms}\` permissions to use this command!`)
-						.setColor('Red')
-						return interaction.reply({ embeds: [userPerms] })
-					}
-					if(!interaction.guild.members.cache.get(client.user.id).permissions.has(PermissionsBitField.resolve(slashCommand.botPerms || []))) {
-						const botPerms = new EmbedBuilder()
-						.setDescription(`🚫 ${interaction.user}, I don't have \`${slashCommand.botPerms}\` permissions to use this command!`)
-						.setColor('Red')
-						return interaction.reply({ embeds: [botPerms] })
-					}
+  const slashCommand = client.slashCommands.get(interaction.commandName);
+  try {
+    // Handle autocomplete safely
+    if (interaction.type === InteractionType.ApplicationCommandAutocomplete) {
+      if (slashCommand?.autocomplete) {
+        const choices = [];
+        await slashCommand.autocomplete(interaction, choices).catch(console.error);
+      }
+      return;
+    }
 
-				}
+    // Exit if not a command
+    if (interaction.type !== InteractionType.ApplicationCommand || !slashCommand) return;
 
-					await slashCommand.run(client, interaction);
-					cooldown.set(`slash-${slashCommand.name}${interaction.user.id}`, Date.now() + slashCommand.cooldown)
-					setTimeout(() => {
-							cooldown.delete(`slash-${slashCommand.name}${interaction.user.id}`)
-					}, slashCommand.cooldown)
-			} else {
-				if(slashCommand.userPerms || slashCommand.botPerms) {
-					if(!interaction.memberPermissions.has(PermissionsBitField.resolve(slashCommand.userPerms || []))) {
-						const userPerms = new EmbedBuilder()
-						.setDescription(`🚫 ${interaction.user}, You don't have \`${slashCommand.userPerms}\` permissions to use this command!`)
-						.setColor('Red')
-						return interaction.reply({ embeds: [userPerms] })
-					}
-					if(!interaction.guild.members.cache.get(client.user.id).permissions.has(PermissionsBitField.resolve(slashCommand.botPerms || []))) {
-						const botPerms = new EmbedBuilder()
-						.setDescription(`🚫 ${interaction.user}, I don't have \`${slashCommand.botPerms}\` permissions to use this command!`)
-						.setColor('Red')
-						return interaction.reply({ embeds: [botPerms] })
-					}
+    // Delete command if it no longer exists
+    if (!slashCommand) {
+      client.slashCommands.delete(interaction.commandName);
+      return;
+    }
 
-				}
-					await slashCommand.run(client, interaction);
-			}
-		} catch (error) {
-				console.log(error);
-		}
+    // Handle cooldown
+    const cooldownKey = `slash-${slashCommand.name}-${interaction.user.id}`;
+    if (slashCommand.cooldown) {
+      const existingCooldown = cooldown.get(cooldownKey);
+      if (existingCooldown && Date.now() < existingCooldown) {
+        const remaining = ms(existingCooldown - Date.now(), { long: true });
+        if (!interaction.replied && !interaction.deferred) {
+          return interaction.reply({
+            content: config.messages["COOLDOWN_MESSAGE"].replace('<duration>', remaining),
+            ephemeral: true,
+          }).catch(() => {});
+        } else {
+          return interaction.followUp({
+            content: config.messages["COOLDOWN_MESSAGE"].replace('<duration>', remaining),
+            ephemeral: true,
+          }).catch(() => {});
+        }
+      }
+
+      cooldown.set(cooldownKey, Date.now() + slashCommand.cooldown);
+      setTimeout(() => cooldown.delete(cooldownKey), slashCommand.cooldown);
+    }
+
+    // Permissions check
+    const missingUserPerms = slashCommand.userPerms && !interaction.memberPermissions.has(PermissionsBitField.resolve(slashCommand.userPerms));
+    const missingBotPerms = slashCommand.botPerms && !interaction.guild.members.me.permissions.has(PermissionsBitField.resolve(slashCommand.botPerms));
+
+    if (missingUserPerms) {
+      const embed = new EmbedBuilder()
+        .setColor('Red')
+        .setDescription(`🚫 ${interaction.user}, you need \`${slashCommand.userPerms}\` permissions to use this command!`);
+      return safeReply(interaction, { embeds: [embed], ephemeral: true });
+    }
+
+    if (missingBotPerms) {
+      const embed = new EmbedBuilder()
+        .setColor('Red')
+        .setDescription(`🚫 I need \`${slashCommand.botPerms}\` permissions to run this command!`);
+      return safeReply(interaction, { embeds: [embed], ephemeral: true });
+    }
+
+    // Run the actual command
+    await slashCommand.run(client, interaction);
+
+  } catch (err) {
+    console.error('🟥 Interaction Error:', err);
+    safeReply(interaction, {
+      content: '❌ An unexpected error occurred while processing this command.',
+      ephemeral: true,
+    });
+  }
 });
+
+/**
+ * Safe reply or follow-up to prevent crashes from InteractionAlreadyReplied
+ */
+async function safeReply(interaction, payload) {
+  try {
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply(payload);
+    } else {
+      await interaction.followUp(payload);
+    }
+  } catch (e) {
+    console.error('🟥 Safe reply failed:', e);
+  }
+}
