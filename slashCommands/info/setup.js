@@ -69,14 +69,15 @@ module.exports = {
 
     // Member select
     const memberOptions = interaction.guild.members.cache
-      .filter(m => !m.user.bot)
-      .map(member => ({
-        label: member.user.username.slice(0, 100),
-        value: member.id,
-        description: adminUserIds.includes(member.id)
-          ? 'Already in admin list.'
-          : undefined,
-      }));
+  .filter(m => !m.user.bot)
+  .first(25) // 👈 only take the first 25 to stay within Discord's limit
+  .map(member => ({
+    label: member.user.username.slice(0, 100),
+    value: member.id,
+    description: adminUserIds.includes(member.id)
+      ? 'Already in admin list.'
+      : undefined,
+  }));
 
     const memberSelect = new StringSelectMenuBuilder()
       .setCustomId('select_admin_users')
