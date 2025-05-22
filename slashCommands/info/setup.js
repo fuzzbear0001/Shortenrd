@@ -55,17 +55,18 @@ module.exports = {
     const roleSelect = new StringSelectMenuBuilder()
       .setCustomId('select_admin_role')
       .setPlaceholder('Select Admin Role')
-      .addOptions(
-        interaction.guild.roles.cache
-          .filter(r => r.editable && r.id !== interaction.guild.id)
-          .map(role => ({
-            label: role.name.slice(0, 100),
-            value: role.id,
-            description: role.id === config.adminRoleId
-              ? '✅ This role is currently set as admin.'
-              : undefined,
-          }))
-      );
+   .addOptions(
+  interaction.guild.roles.cache
+    .filter(r => r.editable && r.id !== interaction.guild.id)
+    .first(25) // limit to 25 roles
+    .map(role => ({
+      label: role.name.slice(0, 100),
+      value: role.id,
+      description: role.id === config.adminRoleId
+        ? '✅ This role is currently set as admin.'
+        : undefined,
+    }))
+)
 
     // Member select
     const memberOptions = interaction.guild.members.cache
