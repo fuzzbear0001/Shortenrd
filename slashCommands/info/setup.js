@@ -9,6 +9,7 @@ const {
   ChannelType,
 } = require('discord.js');
 
+const { InteractionResponseFlags } = require('discord-api-types/v10');
 const { eq } = require('drizzle-orm');
 const { configs } = require('../../drizzle/schema.js');
 const { dbPromise } = require('../../drizzle/db.js');
@@ -24,7 +25,7 @@ module.exports = {
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({
         content: 'Only the server owner can run this setup command.',
-        ephemeral: true,
+        flags: InteractionResponseFlags.Ephemeral,
       });
     }
 
@@ -45,13 +46,20 @@ module.exports = {
       reportChannel: null,
     };
 
-    let adminUserIds = JSON.parse(config.adminUserIds || '[]');
+    // Safely parse adminUserIds JSON with fallback
+    let adminUserIds = [];
+    try {
+      adminUserIds = JSON.parse(config.adminUserIds || '[]');
+      if (!Array.isArray(adminUserIds)) adminUserIds = [];
+    } catch {
+      adminUserIds = [];
+    }
 
     const generateEmbed = () =>
       new EmbedBuilder()
         .setTitle(`Server Setup for ${interaction.guild.name}`)
         .setDescription(
-          `Configure admin role, admin users, and report channel.\n\n**Note:** Bot must have a role higher than the admin role.`,
+          `Configure admin role, admin users, and report channel.\n\n**Note:** Bot must have a role higher than the admin role.`
         )
         .addFields(
           {
@@ -70,7 +78,7 @@ module.exports = {
             name: 'Report Channel',
             value: config.reportChannel ? `<#${config.reportChannel}>` : 'Not set',
             inline: true,
-          },
+          }
         )
         .setColor('Blue')
         .setTimestamp();
@@ -80,7 +88,7 @@ module.exports = {
         .setCustomId('select_admin_role')
         .setPlaceholder('Select Admin Role')
         .setMinValues(1)
-        .setMaxValues(1),
+        .setMaxValues(1)
     );
 
     const row2 = new ActionRowBuilder().addComponents(
@@ -88,20 +96,20 @@ module.exports = {
         .setCustomId('select_admin_users')
         .setPlaceholder('Add/Remove Admin Users')
         .setMinValues(0)
-        .setMaxValues(25),
+        .setMaxValues(25)
     );
 
     const row3 = new ActionRowBuilder().addComponents(
       new ChannelSelectMenuBuilder()
         .setCustomId('select_report_channel')
         .setPlaceholder('Select Report Channel')
-        .addChannelTypes(ChannelType.GuildText),
+        .addChannelTypes(ChannelType.GuildText)
     );
 
     const response = await interaction.reply({
       embeds: [generateEmbed()],
       components: [row1, row2, row3],
-      ephemeral: true,
+      flags: InteractionResponseFlags.Ephemeral,
     });
 
     // Helper to upsert config with generated id (if none exists)
@@ -114,14 +122,18 @@ module.exports = {
           id, // must include id here!
           guildId,
           adminRoleId: partialFields.adminRoleId ?? config.adminRoleId,
-          adminUserIds: JSON.stringify(partialFields.adminUserIds ?? adminUserIds),
+          adminUserIds: JSON.stringify(
+            partialFields.adminUserIds ?? adminUserIds
+          ),
           reportChannel: partialFields.reportChannel ?? config.reportChannel,
         })
         .onConflictDoUpdate({
           target: configs.guildId,
           set: {
             adminRoleId: partialFields.adminRoleId ?? config.adminRoleId,
-            adminUserIds: JSON.stringify(partialFields.adminUserIds ?? adminUserIds),
+            adminUserIds: JSON.stringify(
+              partialFields.adminUserIds ?? adminUserIds
+            ),
             reportChannel: partialFields.reportChannel ?? config.reportChannel,
           },
         });
@@ -142,7 +154,7 @@ module.exports = {
         content: `✅ Admin role set to <@&${selectedRoleId}>`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        ephemeral: true,
+        flags: InteractionResponseFlags.Ephemeral,
       });
     });
 
@@ -161,7 +173,7 @@ module.exports = {
         content: `✅ Admin users updated.`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        ephemeral: true,
+        flags: InteractionResponseFlags.Ephemeral,
       });
     });
 
@@ -180,7 +192,7 @@ module.exports = {
         content: `✅ Report channel set to <#${selectedChannelId}>`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        ephemeral: true,
+        flags: InteractionResponseFlags.Ephemeral,
       });
     });
   },
