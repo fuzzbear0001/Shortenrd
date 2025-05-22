@@ -1,67 +1,86 @@
-// events/messageCreate.js
-
 const { EmbedBuilder } = require('discord.js');
-const { eq } = require('drizzle-orm');
 const { dbPromise } = require('../drizzle/db');
 const { configs } = require('../drizzle/schema');
-const isPrivateLink = require('../utils/isPrivateLink');
+const { eq } = require('drizzle-orm');
+const ipRegex = require('ip-regex');
+const client = require('..');
+const ipaddr = require('ipaddr.js');
 
-module.exports = {
-  name: 'messageCreate',
-  async execute(message) {
-    if (message.author.bot || !message.guild) return;
+client.on('messageCreate', async message => {
+  if (message.author.bot || !message.guild) return;
 
-    const db = await dbPromise;
-    const guildConfig = await db
-      .select()
-      .from(configs)
-      .where(eq(configs.guildId, message.guild.id))
-      .limit(1)
-      .then(res => res[0]);
+  const db = await dbPromise;
+  const guildId = message.guild.id;
 
-    if (!guildConfig?.blockPrivateLinks) return;
+  const [config] = await db.select().from(configs).where(eq(configs.guildId, guildId)).execute();
+  if (!config || !config.blockPrivateIPs) return;
 
-    const urls = [...message.content.matchAll(/https?:\/\/[^\s]+/g)].map(m => m[0]);
+  const adminUserIds = JSON.parse(config.adminUserIds || '[]');
+  const allowedChannels = JSON.parse(config.allowedChannels || '[]');
+  const customRanges = JSON.parse(config.customBlockedRanges || '[]');
 
-    for (const url of urls) {
-      if (isPrivateLink(url)) {
-        const action = guildConfig.blockPrivateLinksAction || 'warn';
+  if (allowedChannels.length && !allowedChannels.includes(message.channel.id)) return;
 
-        try {
-          if (action === 'delete' || action === 'delete_and_log') {
-            await message.delete();
-          }
+  const ipMatches = [...message.content.matchAll(ipRegex())].map(m => m[0]);
 
-          if (action === 'warn') {
-            const warnEmbed = new EmbedBuilder()
-              .setColor('Yellow')
-              .setDescription(`⚠️ <@${message.author.id}>, posting private IP links is not allowed.`);
-
-            await message.reply({ embeds: [warnEmbed] });
-          }
-
-          if (action === 'delete_and_log' && guildConfig.reportChannel) {
-            const channel = message.guild.channels.cache.get(guildConfig.reportChannel);
-            if (channel) {
-              const logEmbed = new EmbedBuilder()
-                .setColor('Red')
-                .setTitle('Blocked Private IP Link')
-                .addFields(
-                  { name: 'User', value: `<@${message.author.id}>`, inline: true },
-                  { name: 'Channel', value: `<#${message.channel.id}>`, inline: true },
-                  { name: 'Link', value: `\`${url}\`` }
-                )
-                .setTimestamp();
-
-              await channel.send({ embeds: [logEmbed] });
-            }
-          }
-        } catch (err) {
-          console.error('Error handling private link:', err);
-        }
-
-        break;
+  const allBlockedRanges = [
+    ['10.0.0.0', '10.255.255.255'],
+    ['172.16.0.0', '172.31.255.255'],
+    ['192.168.0.0', '192.168.255.255'],
+    ['127.0.0.0', '127.255.255.255'],
+    ['::1', '::1'],
+    ...customRanges.map(cidr => {
+      try {
+        const range = ipaddr.parseCIDR(cidr);
+        return range;
+      } catch {
+        return null;
       }
+    }).filter(Boolean)
+  ];
+
+  const isPrivateIP = ip => {
+    try {
+      const parsed = ipaddr.parse(ip);
+      return allBlockedRanges.some(range => {
+        if (Array.isArray(range)) return parsed.match(ipaddr.parseCIDR(range.join('/')));
+        return parsed.match(range);
+      });
+    } catch {
+      return false;
     }
-  },
-};
+  };
+
+  const badIP = ipMatches.find(ip => isPrivateIP(ip));
+  if (!badIP) return;
+
+  const embed = new EmbedBuilder()
+    .setColor('Red')
+    .setDescription(`🛑 That link includes a private or blocked IP address: \`${badIP}\``);
+
+  switch (config.blockAction) {
+    case 'warn':
+      return message.reply({ embeds: [embed] });
+    case 'delete':
+      return message.delete().catch(() => {});
+    case 'delete-log':
+      message.delete().catch(() => {});
+      if (config.reportChannel) {
+        const report = new EmbedBuilder()
+          .setTitle('Blocked Private IP Link')
+          .setDescription(`A message by <@${message.author.id}> was blocked.`)
+          .addFields(
+            { name: 'IP', value: badIP },
+            { name: 'Content', value: `\`\`\`${message.content.slice(0, 1000)}\`\`\`` },
+            { name: 'Channel', value: `<#${message.channel.id}>` }
+          )
+          .setColor('DarkRed')
+          .setTimestamp();
+        const logChannel = await client.channels.fetch(config.reportChannel).catch(() => null);
+        if (logChannel?.isTextBased()) {
+          logChannel.send({ embeds: [report] }).catch(() => {});
+        }
+      }
+      break;
+  }
+});
