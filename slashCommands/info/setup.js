@@ -88,10 +88,10 @@ module.exports = {
     });
 
     const collector = interaction.channel.createMessageComponentCollector({
-      componentType: ComponentType.SelectMenu,
-      time: 120000,
-      filter: i => i.user.id === interaction.user.id,
-    });
+  componentType: ComponentType.SelectMenu,
+  time: 120000,
+  filter: i => i.user.id === interaction.user.id,
+});
 
     collector.on('collect', async i => {
       try {
