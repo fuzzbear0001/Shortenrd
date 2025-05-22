@@ -18,6 +18,7 @@ module.exports = {
   description: 'Setup your server admin role, admins, and report channel (guild owner only).',
   type: ApplicationCommandType.ChatInput,
   cooldown: 10000,
+
   run: async (client, interaction) => {
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({
@@ -56,26 +57,28 @@ module.exports = {
       .setColor('Blue')
       .setTimestamp();
 
-    const roleSelect = new RoleSelectMenuBuilder()
-      .setCustomId('select_admin_role')
-      .setPlaceholder('Select Admin Role')
-      .setMinValues(1)
-      .setMaxValues(1);
+    const row1 = new ActionRowBuilder().addComponents(
+      new RoleSelectMenuBuilder()
+        .setCustomId('select_admin_role')
+        .setPlaceholder('Select Admin Role')
+        .setMinValues(1)
+        .setMaxValues(1)
+    );
 
-    const memberSelect = new UserSelectMenuBuilder()
-      .setCustomId('select_admin_users')
-      .setPlaceholder('Add/Remove Admin Users')
-      .setMinValues(0)
-      .setMaxValues(25);
+    const row2 = new ActionRowBuilder().addComponents(
+      new UserSelectMenuBuilder()
+        .setCustomId('select_admin_users')
+        .setPlaceholder('Add/Remove Admin Users')
+        .setMinValues(0)
+        .setMaxValues(25)
+    );
 
-    const channelSelect = new ChannelSelectMenuBuilder()
-      .setCustomId('select_report_channel')
-      .setPlaceholder('Select Report Channel')
-      .setChannelTypes([ChannelType.GuildText]);
-
-    const row1 = new ActionRowBuilder().addComponents(roleSelect);
-    const row2 = new ActionRowBuilder().addComponents(memberSelect);
-    const row3 = new ActionRowBuilder().addComponents(channelSelect);
+    const row3 = new ActionRowBuilder().addComponents(
+      new ChannelSelectMenuBuilder()
+        .setCustomId('select_report_channel')
+        .setPlaceholder('Select Report Channel')
+        .setChannelTypes([ChannelType.GuildText])
+    );
 
     await interaction.reply({
       embeds: [embed],
@@ -85,24 +88,29 @@ module.exports = {
     const message = await interaction.fetchReply();
 
     const collector = message.createMessageComponentCollector({
-      componentType: ComponentType.SelectMenu,
+      componentType: ComponentType.StringSelect, // fixed from generic SelectMenu
       time: 120000,
       filter: i => i.user.id === interaction.user.id,
     });
 
     collector.on('collect', async i => {
       try {
+        console.log(`Collected: ${i.customId} -> ${i.values.join(', ')}`);
+        if (!i.deferred && !i.replied) await i.deferUpdate();
+
         if (i.customId === 'select_admin_role') {
           const selectedRoleId = i.values[0];
           const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
           const botMember = interaction.guild.members.me;
 
           if (selectedRole.position >= botMember.roles.highest.position) {
-            return await i.reply({
+            return await i.followUp({
               content: '❌ My role must be above the selected admin role.',
               ephemeral: true,
             });
           }
+
+          config.adminRoleId = selectedRoleId;
 
           await db
             .insert(configs)
@@ -111,7 +119,7 @@ module.exports = {
               guildId,
               adminRoleId: selectedRoleId,
               adminUserIds: JSON.stringify(adminUserIds),
-              reportChannel: config.reportChannel || '0',
+              reportChannel: config.reportChannel || null,
             })
             .onConflictDoUpdate({
               target: configs.guildId,
@@ -119,15 +127,13 @@ module.exports = {
             })
             .execute();
 
-          config.adminRoleId = selectedRoleId;
-
           embed.spliceFields(0, 1, {
             name: 'Admin Role',
             value: `<@&${selectedRoleId}>`,
             inline: true,
           });
 
-          await i.update({ embeds: [embed], components: [row1, row2, row3] });
+          await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
 
         } else if (i.customId === 'select_admin_users') {
           const selectedUserIds = i.values;
@@ -147,7 +153,7 @@ module.exports = {
               guildId,
               adminRoleId: config.adminRoleId,
               adminUserIds: JSON.stringify(adminUserIds),
-              reportChannel: config.reportChannel || '0',
+              reportChannel: config.reportChannel || null,
             })
             .onConflictDoUpdate({
               target: configs.guildId,
@@ -161,10 +167,12 @@ module.exports = {
             inline: true,
           });
 
-          await i.update({ embeds: [embed], components: [row1, row2, row3] });
+          await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
 
         } else if (i.customId === 'select_report_channel') {
           const selectedChannelId = i.values[0];
+
+          config.reportChannel = selectedChannelId;
 
           await db
             .insert(configs)
@@ -181,28 +189,34 @@ module.exports = {
             })
             .execute();
 
-          config.reportChannel = selectedChannelId;
-
           embed.spliceFields(2, 1, {
             name: 'Report Channel',
             value: `<#${selectedChannelId}>`,
             inline: true,
           });
 
-          await i.update({ embeds: [embed], components: [row1, row2, row3] });
+          await i.editReply({ embeds: [embed], components: [row1, row2, row3] });
         }
       } catch (err) {
-        console.error(err);
-        try {
-          await i.reply({ content: '❌ Something went wrong during setup.', ephemeral: true });
-        } catch {}
+        console.error(`Interaction error: ${err.stack || err.message}`);
+        if (!i.replied && !i.deferred) {
+          try {
+            await i.reply({ content: '❌ Something went wrong during setup.', ephemeral: true });
+          } catch {}
+        }
       }
     });
 
     collector.on('end', async () => {
       try {
-        await interaction.editReply({ content: '✅ Setup session ended.', components: [] });
-      } catch {}
+        await interaction.editReply({
+          content: '✅ Setup session ended.',
+          embeds: [embed],
+          components: [],
+        });
+      } catch (e) {
+        console.error('Failed to end setup session:', e.message);
+      }
     });
   },
 };
