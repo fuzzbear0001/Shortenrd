@@ -6,12 +6,14 @@ const {
   ChannelSelectMenuBuilder,
   ComponentType,
   EmbedBuilder,
-  ChannelType
+  ChannelType,
+  InteractionResponseFlags
 } = require('discord.js');
 
 const { eq } = require('drizzle-orm');
 const { configs } = require('../../drizzle/schema.js');
 const { dbPromise } = require('../../drizzle/db.js');
+const { randomUUID } = require('crypto');
 
 module.exports = {
   name: 'setup',
@@ -23,7 +25,7 @@ module.exports = {
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({
         content: 'Only the server owner can run this setup command.',
-        ephemeral: true
+        flags: InteractionResponseFlags.Ephemeral,
       });
     }
 
@@ -96,11 +98,38 @@ module.exports = {
     const response = await interaction.reply({
       embeds: [generateEmbed()],
       components: [row1, row2, row3],
-      ephemeral: true,
-      fetchReply: true,
+      flags: InteractionResponseFlags.Ephemeral,
+      // fetchReply is deprecated — no longer needed if you just await the reply and it returns message
+      // The promise returned by reply() resolves to the message, so:
     });
 
-    // Collector for RoleSelectMenu
+    // Use response = await interaction.fetchReply() if necessary later
+
+    // Helper to upsert config with generated id (if none exists)
+    const upsertConfig = async (partialFields) => {
+      // generate new id ONLY if no existing record
+      const id = existing[0]?.id || randomUUID();
+
+      await db
+        .insert(configs)
+        .values({
+          id, // must include id here!
+          guildId,
+          adminRoleId: partialFields.adminRoleId ?? config.adminRoleId,
+          adminUserIds: JSON.stringify(partialFields.adminUserIds ?? adminUserIds),
+          reportChannel: partialFields.reportChannel ?? config.reportChannel,
+        })
+        .onConflictDoUpdate({
+          target: configs.guildId,
+          set: {
+            adminRoleId: partialFields.adminRoleId ?? config.adminRoleId,
+            adminUserIds: JSON.stringify(partialFields.adminUserIds ?? adminUserIds),
+            reportChannel: partialFields.reportChannel ?? config.reportChannel,
+          }
+        });
+    };
+
+    // RoleSelect collector
     response.createMessageComponentCollector({
       componentType: ComponentType.RoleSelect,
       time: 120_000,
@@ -109,30 +138,17 @@ module.exports = {
       const selectedRoleId = i.values[0];
       config.adminRoleId = selectedRoleId;
 
-      await db
-        .insert(configs)
-        .values({
-          guildId,
-          adminRoleId: selectedRoleId,
-          adminUserIds: JSON.stringify(adminUserIds),
-          reportChannel: config.reportChannel,
-        })
-        .onConflictDoUpdate({
-          target: configs.guildId,
-          set: {
-            adminRoleId: selectedRoleId
-          }
-        });
+      await upsertConfig({ adminRoleId: selectedRoleId });
 
       await i.update({
         content: `✅ Admin role set to <@&${selectedRoleId}>`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        ephemeral: true
+        flags: InteractionResponseFlags.Ephemeral
       });
     });
 
-    // Collector for UserSelectMenu
+    // UserSelect collector
     response.createMessageComponentCollector({
       componentType: ComponentType.UserSelect,
       time: 120_000,
@@ -141,30 +157,17 @@ module.exports = {
       const selectedUserIds = i.values;
       adminUserIds = selectedUserIds;
 
-      await db
-        .insert(configs)
-        .values({
-          guildId,
-          adminRoleId: config.adminRoleId,
-          adminUserIds: JSON.stringify(adminUserIds),
-          reportChannel: config.reportChannel,
-        })
-        .onConflictDoUpdate({
-          target: configs.guildId,
-          set: {
-            adminUserIds: JSON.stringify(adminUserIds),
-          }
-        });
+      await upsertConfig({ adminUserIds: selectedUserIds });
 
       await i.update({
         content: `✅ Admin users updated.`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        ephemeral: true
+        flags: InteractionResponseFlags.Ephemeral
       });
     });
 
-    // Collector for ChannelSelectMenu
+    // ChannelSelect collector
     response.createMessageComponentCollector({
       componentType: ComponentType.ChannelSelect,
       time: 120_000,
@@ -173,26 +176,13 @@ module.exports = {
       const selectedChannelId = i.values[0];
       config.reportChannel = selectedChannelId;
 
-      await db
-        .insert(configs)
-        .values({
-          guildId,
-          adminRoleId: config.adminRoleId,
-          adminUserIds: JSON.stringify(adminUserIds),
-          reportChannel: selectedChannelId,
-        })
-        .onConflictDoUpdate({
-          target: configs.guildId,
-          set: {
-            reportChannel: selectedChannelId
-          }
-        });
+      await upsertConfig({ reportChannel: selectedChannelId });
 
       await i.update({
         content: `✅ Report channel set to <#${selectedChannelId}>`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        ephemeral: true
+        flags: InteractionResponseFlags.Ephemeral
       });
     });
   }
