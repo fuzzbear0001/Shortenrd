@@ -7,7 +7,6 @@ const {
   ComponentType,
   EmbedBuilder,
   ChannelType,
-  InteractionResponseFlags
 } = require('discord.js');
 
 const { eq } = require('drizzle-orm');
@@ -25,7 +24,7 @@ module.exports = {
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({
         content: 'Only the server owner can run this setup command.',
-        flags: InteractionResponseFlags.Ephemeral,
+        ephemeral: true,
       });
     }
 
@@ -43,7 +42,7 @@ module.exports = {
     const config = existing[0] || {
       adminRoleId: null,
       adminUserIds: '[]',
-      reportChannel: null
+      reportChannel: null,
     };
 
     let adminUserIds = JSON.parse(config.adminUserIds || '[]');
@@ -51,23 +50,27 @@ module.exports = {
     const generateEmbed = () =>
       new EmbedBuilder()
         .setTitle(`Server Setup for ${interaction.guild.name}`)
-        .setDescription(`Configure admin role, admin users, and report channel.\n\n**Note:** Bot must have a role higher than the admin role.`)
+        .setDescription(
+          `Configure admin role, admin users, and report channel.\n\n**Note:** Bot must have a role higher than the admin role.`,
+        )
         .addFields(
           {
             name: 'Admin Role',
             value: config.adminRoleId ? `<@&${config.adminRoleId}>` : 'Not set',
-            inline: true
+            inline: true,
           },
           {
             name: 'Admin Users',
-            value: adminUserIds.length ? adminUserIds.map(id => `<@${id}>`).join('\n') : 'No admins set',
-            inline: true
+            value: adminUserIds.length
+              ? adminUserIds.map((id) => `<@${id}>`).join('\n')
+              : 'No admins set',
+            inline: true,
           },
           {
             name: 'Report Channel',
             value: config.reportChannel ? `<#${config.reportChannel}>` : 'Not set',
-            inline: true
-          }
+            inline: true,
+          },
         )
         .setColor('Blue')
         .setTimestamp();
@@ -77,7 +80,7 @@ module.exports = {
         .setCustomId('select_admin_role')
         .setPlaceholder('Select Admin Role')
         .setMinValues(1)
-        .setMaxValues(1)
+        .setMaxValues(1),
     );
 
     const row2 = new ActionRowBuilder().addComponents(
@@ -85,29 +88,24 @@ module.exports = {
         .setCustomId('select_admin_users')
         .setPlaceholder('Add/Remove Admin Users')
         .setMinValues(0)
-        .setMaxValues(25)
+        .setMaxValues(25),
     );
 
     const row3 = new ActionRowBuilder().addComponents(
       new ChannelSelectMenuBuilder()
         .setCustomId('select_report_channel')
         .setPlaceholder('Select Report Channel')
-        .addChannelTypes(ChannelType.GuildText)
+        .addChannelTypes(ChannelType.GuildText),
     );
 
     const response = await interaction.reply({
       embeds: [generateEmbed()],
       components: [row1, row2, row3],
-      flags: InteractionResponseFlags.Ephemeral,
-      // fetchReply is deprecated — no longer needed if you just await the reply and it returns message
-      // The promise returned by reply() resolves to the message, so:
+      ephemeral: true,
     });
-
-    // Use response = await interaction.fetchReply() if necessary later
 
     // Helper to upsert config with generated id (if none exists)
     const upsertConfig = async (partialFields) => {
-      // generate new id ONLY if no existing record
       const id = existing[0]?.id || randomUUID();
 
       await db
@@ -125,7 +123,7 @@ module.exports = {
             adminRoleId: partialFields.adminRoleId ?? config.adminRoleId,
             adminUserIds: JSON.stringify(partialFields.adminUserIds ?? adminUserIds),
             reportChannel: partialFields.reportChannel ?? config.reportChannel,
-          }
+          },
         });
     };
 
@@ -133,8 +131,8 @@ module.exports = {
     response.createMessageComponentCollector({
       componentType: ComponentType.RoleSelect,
       time: 120_000,
-      filter: i => i.user.id === interaction.user.id,
-    }).on('collect', async i => {
+      filter: (i) => i.user.id === interaction.user.id,
+    }).on('collect', async (i) => {
       const selectedRoleId = i.values[0];
       config.adminRoleId = selectedRoleId;
 
@@ -144,7 +142,7 @@ module.exports = {
         content: `✅ Admin role set to <@&${selectedRoleId}>`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        flags: InteractionResponseFlags.Ephemeral
+        ephemeral: true,
       });
     });
 
@@ -152,8 +150,8 @@ module.exports = {
     response.createMessageComponentCollector({
       componentType: ComponentType.UserSelect,
       time: 120_000,
-      filter: i => i.user.id === interaction.user.id,
-    }).on('collect', async i => {
+      filter: (i) => i.user.id === interaction.user.id,
+    }).on('collect', async (i) => {
       const selectedUserIds = i.values;
       adminUserIds = selectedUserIds;
 
@@ -163,7 +161,7 @@ module.exports = {
         content: `✅ Admin users updated.`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        flags: InteractionResponseFlags.Ephemeral
+        ephemeral: true,
       });
     });
 
@@ -171,8 +169,8 @@ module.exports = {
     response.createMessageComponentCollector({
       componentType: ComponentType.ChannelSelect,
       time: 120_000,
-      filter: i => i.user.id === interaction.user.id,
-    }).on('collect', async i => {
+      filter: (i) => i.user.id === interaction.user.id,
+    }).on('collect', async (i) => {
       const selectedChannelId = i.values[0];
       config.reportChannel = selectedChannelId;
 
@@ -182,8 +180,8 @@ module.exports = {
         content: `✅ Report channel set to <#${selectedChannelId}>`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        flags: InteractionResponseFlags.Ephemeral
+        ephemeral: true,
       });
     });
-  }
+  },
 };
