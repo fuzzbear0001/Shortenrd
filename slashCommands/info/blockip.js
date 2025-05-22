@@ -4,8 +4,7 @@ const {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   ButtonBuilder,
-  ButtonStyle,
-  PermissionsBitField
+  ButtonStyle
 } = require('discord.js');
 
 const { dbPromise } = require('../../drizzle/db');
@@ -23,7 +22,19 @@ module.exports = {
     const userId = interaction.user.id;
 
     const [config] = await db.select().from(configs).where(eq(configs.guildId, guildId)).execute();
-    const adminUserIds = JSON.parse(config?.adminUserIds || '[]');
+
+    // Safe parse adminUserIds, fallback to empty array
+    let adminUserIds = [];
+    try {
+      adminUserIds = JSON.parse(config?.adminUserIds);
+      if (!Array.isArray(adminUserIds)) {
+        adminUserIds = [];
+      }
+    } catch {
+      adminUserIds = [];
+    }
+
+    // Check user permission
     const isOwner = userId === interaction.guild.ownerId;
     const isAdminRole = config?.adminRoleId && interaction.member.roles.cache.has(config.adminRoleId);
     const isAdminUser = adminUserIds.includes(userId);
