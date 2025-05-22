@@ -13,11 +13,11 @@ const configs = pgTable('configs', {
   reportChannel: varchar('report_channel', { length: 255 }).notNull(),
   strictMode: boolean('strict_mode').notNull().default(false),
   adminRoleId: varchar('admin_role_id', { length: 255 }).default(null),
-  adminUserIds: json('admin_user_ids').default('[]'),
+  adminUserIds: json('admin_user_ids').default([]), // ✅ now it's a proper JSON array
   blockPrivateIPs: boolean('block_private_ips').notNull().default(false),
-  blockAction: varchar('block_action', { length: 255 }).default('warn'), // warn | delete | delete-log
-  allowedChannels: json('allowed_channels').default('[]'), // array of allowed channel IDs
-  customBlockedRanges: json('custom_blocked_ranges').default('[]'), // array of CIDR strings or IPs
+  blockAction: varchar('block_action', { length: 255 }).default('warn'),
+  allowedChannels: json('allowed_channels').default([]), // ✅ real array now
+  customBlockedRanges: json('custom_blocked_ranges').default([]), // ✅ real array now
 });
 
 module.exports = { users, configs };
