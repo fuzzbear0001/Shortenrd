@@ -2,7 +2,6 @@ const { EmbedBuilder } = require('discord.js');
 const { dbPromise } = require('../drizzle/db');
 const { configs } = require('../drizzle/schema');
 const { eq } = require('drizzle-orm');
-const ipRegex = require('ip-regex');
 const client = require('..');
 const ipaddr = require('ipaddr.js');
 
@@ -19,33 +18,42 @@ client.on('messageCreate', async message => {
   const allowedChannels = JSON.parse(config.allowedChannels || '[]');
   const customRanges = JSON.parse(config.customBlockedRanges || '[]');
 
+  // Respect channel filter
   if (allowedChannels.length && !allowedChannels.includes(message.channel.id)) return;
 
+  // Dynamically import ip-regex ESM
+  const ipRegex = (await import('ip-regex')).default;
   const ipMatches = [...message.content.matchAll(ipRegex())].map(m => m[0]);
 
-  const allBlockedRanges = [
+  // Define private IP ranges + custom ranges
+  const defaultRanges = [
     ['10.0.0.0', '10.255.255.255'],
     ['172.16.0.0', '172.31.255.255'],
     ['192.168.0.0', '192.168.255.255'],
     ['127.0.0.0', '127.255.255.255'],
     ['::1', '::1'],
-    ...customRanges.map(cidr => {
+  ];
+
+  const parsedCustom = customRanges
+    .map(cidr => {
       try {
-        const range = ipaddr.parseCIDR(cidr);
-        return range;
+        return ipaddr.parseCIDR(cidr);
       } catch {
         return null;
       }
-    }).filter(Boolean)
+    })
+    .filter(Boolean);
+
+  const allBlockedRanges = [
+    ...defaultRanges.map(([start]) => ipaddr.parseCIDR(`${start}/${ipaddr.parse(start).kind() === 'ipv4' ? '8' : '128'}`)),
+    ...parsedCustom
   ];
 
+  // Check if an IP is private or blocked
   const isPrivateIP = ip => {
     try {
       const parsed = ipaddr.parse(ip);
-      return allBlockedRanges.some(range => {
-        if (Array.isArray(range)) return parsed.match(ipaddr.parseCIDR(range.join('/')));
-        return parsed.match(range);
-      });
+      return allBlockedRanges.some(range => parsed.match(range));
     } catch {
       return false;
     }
@@ -54,20 +62,21 @@ client.on('messageCreate', async message => {
   const badIP = ipMatches.find(ip => isPrivateIP(ip));
   if (!badIP) return;
 
+  // Build warning embed
   const embed = new EmbedBuilder()
     .setColor('Red')
     .setDescription(`🛑 That link includes a private or blocked IP address: \`${badIP}\``);
 
   switch (config.blockAction) {
     case 'warn':
-      return message.reply({ embeds: [embed] });
+      return message.reply({ embeds: [embed] }).catch(() => {});
     case 'delete':
       return message.delete().catch(() => {});
     case 'delete-log':
-      message.delete().catch(() => {});
+      await message.delete().catch(() => {});
       if (config.reportChannel) {
         const report = new EmbedBuilder()
-          .setTitle('Blocked Private IP Link')
+          .setTitle('🚫 Blocked Private IP Link')
           .setDescription(`A message by <@${message.author.id}> was blocked.`)
           .addFields(
             { name: 'IP', value: badIP },
@@ -76,9 +85,14 @@ client.on('messageCreate', async message => {
           )
           .setColor('DarkRed')
           .setTimestamp();
-        const logChannel = await client.channels.fetch(config.reportChannel).catch(() => null);
-        if (logChannel?.isTextBased()) {
-          logChannel.send({ embeds: [report] }).catch(() => {});
+
+        try {
+          const logChannel = await client.channels.fetch(config.reportChannel);
+          if (logChannel?.isTextBased()) {
+            logChannel.send({ embeds: [report] });
+          }
+        } catch (err) {
+          console.error('Log channel fetch/send failed:', err);
         }
       }
       break;
