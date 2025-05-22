@@ -5,7 +5,8 @@ const {
   StringSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelType
+  ChannelType,
+  ComponentType
 } = require('discord.js');
 
 const { dbPromise } = require('../../drizzle/db');
@@ -42,6 +43,7 @@ module.exports = {
       });
     }
 
+    // Initial embed and select menu
     const embed = new EmbedBuilder()
       .setTitle('🛡️ Private IP Blocking')
       .setDescription('Select an action when a private or LAN IP is detected in messages.')
@@ -64,33 +66,42 @@ module.exports = {
       ephemeral: true
     });
 
-    // Disable the select menu after 30 seconds automatically
+    // Auto-disable after 30 sec
     setTimeout(async () => {
       try {
-        const disabledRow = new ActionRowBuilder().addComponents(
-          actionSelect.components[0].setDisabled(true)
-        );
-        await interaction.editReply({ components: [disabledRow] });
+        const message = await interaction.fetchReply();
+        if (!message) return;
+        const disabledComponents = message.components.map(row => {
+          const newRow = ActionRowBuilder.from(row);
+          newRow.components.forEach(c => c.setDisabled(true));
+          return newRow;
+        });
+        await interaction.editReply({ components: disabledComponents });
       } catch (e) {
-        // Fail silently, e.g. if interaction deleted or expired
+        // Ignore errors if message already deleted or no longer exists
       }
     }, 30_000);
 
-    const collector = interaction.channel.createMessageComponentCollector({
-      filter: i => i.user.id === interaction.user.id && i.message.id === interaction.id,
-      time: 60000,
-      max: 1
+    // Collect select menu interaction
+    const selectCollector = interaction.channel.createMessageComponentCollector({
+      componentType: ComponentType.StringSelect,
+      time: 60_000,
+      max: 1,
+      filter: i => i.user.id === interaction.user.id && i.customId === 'select_action'
     });
 
-    collector.on('collect', async selection => {
+    selectCollector.on('collect', async selection => {
       const action = selection.values[0];
 
-      // Disable the select menu instantly after selection
-      const disabledRow = new ActionRowBuilder().addComponents(
+      // Disable the select menu immediately
+      const disabledSelectRow = new ActionRowBuilder().addComponents(
         selection.component.setDisabled(true)
       );
-      await selection.update({ components: [disabledRow] });
+      await selection.update({
+        components: [disabledSelectRow]
+      });
 
+      // Prepare next embed with buttons
       const nextEmbed = new EmbedBuilder()
         .setTitle('⚙️ IP Blocking Mode')
         .setDescription('Would you like to **enable** or **disable** private IP blocking?\n\nYou can also open optional advanced settings below.')
@@ -114,48 +125,41 @@ module.exports = {
           .setStyle(ButtonStyle.Secondary)
       );
 
-      await selection.followUp({
+      // Edit original reply to show buttons
+      await interaction.editReply({
         embeds: [nextEmbed],
-        components: [actionRow, configRow],
-        ephemeral: true
+        components: [actionRow, configRow]
       });
 
-      // Auto-disable buttons after 30 seconds
-      const msg = await interaction.fetchReply();
-
-      const disableButtons = async () => {
+      // Auto-disable buttons after 30 sec
+      setTimeout(async () => {
         try {
-          const disabledActionRow1 = new ActionRowBuilder().addComponents(
-            actionRow.components.map(btn => btn.setDisabled(true))
-          );
-          const disabledActionRow2 = new ActionRowBuilder().addComponents(
-            configRow.components.map(btn => btn.setDisabled(true))
-          );
-          await interaction.editReply({
-            components: [disabledActionRow1, disabledActionRow2]
+          const msg = await interaction.fetchReply();
+          if (!msg) return;
+          const disabled = msg.components.map(row => {
+            const newRow = ActionRowBuilder.from(row);
+            newRow.components.forEach(c => c.setDisabled(true));
+            return newRow;
           });
-        } catch {
-          // Ignore errors if already deleted or expired
-        }
-      };
-      setTimeout(disableButtons, 30_000);
+          await interaction.editReply({ components: disabled });
+        } catch { }
+      }, 30_000);
 
+      // Button collector for enable/disable/advanced
       const buttonCollector = interaction.channel.createMessageComponentCollector({
-        filter: i => i.user.id === interaction.user.id,
-        time: 60000
+        componentType: ComponentType.Button,
+        time: 60_000,
+        filter: i => i.user.id === interaction.user.id && ['enable_blocking', 'disable_blocking', 'advanced_config'].includes(i.customId)
       });
 
       buttonCollector.on('collect', async button => {
-        // Disable buttons immediately on interaction
-        const disabledActionRow1 = new ActionRowBuilder().addComponents(
-          actionRow.components.map(btn => btn.setDisabled(true))
-        );
-        const disabledActionRow2 = new ActionRowBuilder().addComponents(
-          configRow.components.map(btn => btn.setDisabled(true))
-        );
-        await button.update({
-          components: [disabledActionRow1, disabledActionRow2]
+        // Disable all buttons immediately
+        const disabledButtons = button.message.components.map(row => {
+          const newRow = ActionRowBuilder.from(row);
+          newRow.components.forEach(c => c.setDisabled(true));
+          return newRow;
         });
+        await button.update({ components: disabledButtons });
 
         if (button.customId === 'advanced_config') {
           const advEmbed = new EmbedBuilder()
@@ -176,6 +180,7 @@ module.exports = {
           return button.followUp({ embeds: [advEmbed], components: [advRow], ephemeral: true });
         }
 
+        // enable or disable blocking
         const enabled = button.customId === 'enable_blocking';
 
         await db
@@ -211,88 +216,91 @@ module.exports = {
         });
       });
 
-      // Advanced dropdown collector
+      // Advanced select menu collector scoped to this channel & user
       const advancedCollector = interaction.channel.createMessageComponentCollector({
-        filter: i => i.user.id === interaction.user.id,
-        time: 60000
+        componentType: ComponentType.StringSelect,
+        time: 60_000,
+        filter: i => i.user.id === interaction.user.id && i.customId === 'advanced_option_select'
       });
 
       advancedCollector.on('collect', async i => {
-        if (!i.isStringSelectMenu() || i.user.id !== interaction.user.id) return;
+        // Disable the advanced select menu immediately
+        const disabledAdvRow = new ActionRowBuilder().addComponents(
+          i.component.setDisabled(true)
+        );
+        await i.update({
+          components: [disabledAdvRow]
+        });
 
-        if (i.customId === 'advanced_option_select') {
-          const value = i.values[0];
+        const value = i.values[0];
 
-          // Disable the select menu after selection
-          const disabledAdvRow = new ActionRowBuilder().addComponents(
-            i.component.setDisabled(true)
-          );
-          await i.update({ components: [disabledAdvRow] });
+        if (value === 'cidr') {
+          await i.followUp({
+            content: '📥 Reply with the **CIDR ranges** to block (comma-separated).',
+            ephemeral: true
+          });
 
-          if (value === 'cidr') {
-            await i.followUp({
-              content: '📥 Reply with the **CIDR ranges** to block (comma-separated).',
-              ephemeral: true
-            });
+          const msgCollector = i.channel.createMessageCollector({
+            filter: m => m.author.id === interaction.user.id,
+            time: 60000,
+            max: 1
+          });
 
-            const msgCollector = i.channel.createMessageCollector({
-              filter: m => m.author.id === interaction.user.id,
-              time: 60000,
-              max: 1
-            });
+          msgCollector.on('collect', async msg => {
+            const ranges = msg.content.split(',').map(r => r.trim());
 
-            msgCollector.on('collect', async msg => {
-              const ranges = msg.content.split(',').map(r => r.trim());
+            await db.update(configs)
+              .set({ customBlockedRanges: JSON.stringify(ranges) })
+              .where(eq(configs.guildId, guildId))
+              .execute();
 
-              await db.update(configs)
-                .set({ customBlockedRanges: JSON.stringify(ranges) })
-                .where(eq(configs.guildId, guildId))
-                .execute();
-
-              await msg.reply({ content: '✅ CIDR ranges updated.', ephemeral: true });
-            });
-          }
-
-          if (value === 'channels') {
-            const channelOptions = interaction.guild.channels.cache
-              .filter(c => c.type === ChannelType.GuildText)
-              .map(c => ({ label: c.name, value: c.id }))
-              .slice(0, 25); // Max 25 options
-
-            const channelDropdown = new ActionRowBuilder().addComponents(
-              new StringSelectMenuBuilder()
-                .setCustomId('channel_select')
-                .setPlaceholder('Select channels to restrict IP blocking to')
-                .setMinValues(1)
-                .setMaxValues(channelOptions.length)
-                .addOptions(channelOptions)
-            );
-
-            await i.followUp({
-              embeds: [new EmbedBuilder().setTitle('📍 Select Channels').setDescription('Choose where IP blocking will apply.').setColor('Blue')],
-              components: [channelDropdown],
-              ephemeral: true
-            });
-          }
+            await msg.reply({ content: '✅ CIDR ranges updated.', ephemeral: true });
+          });
         }
 
-        if (i.customId === 'channel_select') {
-          // Disable the select menu immediately after selection
-          const disabledChannelsRow = new ActionRowBuilder().addComponents(
-            i.component.setDisabled(true)
+        if (value === 'channels') {
+          const channelOptions = interaction.guild.channels.cache
+            .filter(c => c.type === ChannelType.GuildText)
+            .map(c => ({ label: c.name, value: c.id }))
+            .slice(0, 25); // Max 25 options
+
+          const channelDropdown = new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId('channel_select')
+              .setPlaceholder('Select channels to restrict IP blocking to')
+              .setMinValues(1)
+              .setMaxValues(Math.min(channelOptions.length, 25))
+              .addOptions(channelOptions)
           );
-          await i.update({ components: [disabledChannelsRow] });
-
-          const channels = i.values;
-
-          await db.update(configs)
-            .set({ allowedChannels: JSON.stringify(channels) })
-            .where(eq(configs.guildId, guildId))
-            .execute();
 
           await i.followUp({
-            content: `✅ Restricted to ${channels.length} channel(s).`,
+            content: 'Select channels where private IP blocking should be active.',
+            components: [channelDropdown],
             ephemeral: true
+          });
+
+          const channelCollector = interaction.channel.createMessageComponentCollector({
+            componentType: ComponentType.StringSelect,
+            time: 60000,
+            max: 1,
+            filter: i2 => i2.user.id === interaction.user.id && i2.customId === 'channel_select'
+          });
+
+          channelCollector.on('collect', async i2 => {
+            // Disable channel select
+            const disabledRow = new ActionRowBuilder().addComponents(
+              i2.component.setDisabled(true)
+            );
+            await i2.update({ components: [disabledRow] });
+
+            const selectedChannels = i2.values;
+
+            await db.update(configs)
+              .set({ allowedChannels: JSON.stringify(selectedChannels) })
+              .where(eq(configs.guildId, guildId))
+              .execute();
+
+            await i2.followUp({ content: '✅ Allowed channels updated.', ephemeral: true });
           });
         }
       });
