@@ -7,7 +7,6 @@ const {
   ComponentType,
   EmbedBuilder,
   ChannelType,
-  PermissionsBitField,
 } = require('discord.js');
 
 const { eq } = require('drizzle-orm');
@@ -57,21 +56,18 @@ module.exports = {
       .setColor('Blue')
       .setTimestamp();
 
-    // Role select
     const roleSelect = new RoleSelectMenuBuilder()
       .setCustomId('select_admin_role')
       .setPlaceholder('Select Admin Role')
       .setMinValues(1)
       .setMaxValues(1);
 
-    // Member select
     const memberSelect = new UserSelectMenuBuilder()
       .setCustomId('select_admin_users')
       .setPlaceholder('Add/Remove Admin Users')
       .setMinValues(0)
       .setMaxValues(25);
 
-    // Channel select
     const channelSelect = new ChannelSelectMenuBuilder()
       .setCustomId('select_report_channel')
       .setPlaceholder('Select Report Channel')
@@ -88,11 +84,11 @@ module.exports = {
 
     const message = await interaction.fetchReply();
 
-const collector = message.createMessageComponentCollector({
-  componentType: ComponentType.SelectMenu,
-  time: 120000,
-  filter: i => i.user.id === interaction.user.id,
-});
+    const collector = message.createMessageComponentCollector({
+      componentType: ComponentType.SelectMenu,
+      time: 120000,
+      filter: i => i.user.id === interaction.user.id,
+    });
 
     collector.on('collect', async i => {
       try {
@@ -102,7 +98,10 @@ const collector = message.createMessageComponentCollector({
           const botMember = interaction.guild.members.me;
 
           if (selectedRole.position >= botMember.roles.highest.position) {
-            return i.reply({ content: '❌ My role must be above the selected admin role.', ephemeral: true });
+            return await i.reply({
+              content: '❌ My role must be above the selected admin role.',
+              ephemeral: true,
+            });
           }
 
           await db
@@ -121,7 +120,13 @@ const collector = message.createMessageComponentCollector({
             .execute();
 
           config.adminRoleId = selectedRoleId;
-          embed.data.fields[0].value = `<@&${selectedRoleId}>`;
+
+          embed.spliceFields(0, 1, {
+            name: 'Admin Role',
+            value: `<@&${selectedRoleId}>`,
+            inline: true,
+          });
+
           await i.update({ embeds: [embed], components: [row1, row2, row3] });
 
         } else if (i.customId === 'select_admin_users') {
@@ -150,9 +155,11 @@ const collector = message.createMessageComponentCollector({
             })
             .execute();
 
-          embed.data.fields[1].value = adminUserIds.length
-            ? adminUserIds.map(id => `<@${id}>`).join('\n')
-            : 'No admins set';
+          embed.spliceFields(1, 1, {
+            name: 'Admin Users',
+            value: adminUserIds.length ? adminUserIds.map(id => `<@${id}>`).join('\n') : 'No admins set',
+            inline: true,
+          });
 
           await i.update({ embeds: [embed], components: [row1, row2, row3] });
 
@@ -175,19 +182,26 @@ const collector = message.createMessageComponentCollector({
             .execute();
 
           config.reportChannel = selectedChannelId;
-          embed.data.fields[2].value = `<#${selectedChannelId}>`;
+
+          embed.spliceFields(2, 1, {
+            name: 'Report Channel',
+            value: `<#${selectedChannelId}>`,
+            inline: true,
+          });
 
           await i.update({ embeds: [embed], components: [row1, row2, row3] });
         }
       } catch (err) {
         console.error(err);
-        await i.reply({ content: '❌ Something went wrong during setup.', ephemeral: true });
+        try {
+          await i.reply({ content: '❌ Something went wrong during setup.', ephemeral: true });
+        } catch {}
       }
     });
 
     collector.on('end', async () => {
       try {
-        await interaction.editReply({ content: 'Setup session ended.', components: [] });
+        await interaction.editReply({ content: '✅ Setup session ended.', components: [] });
       } catch {}
     });
   },
