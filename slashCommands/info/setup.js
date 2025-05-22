@@ -21,17 +21,21 @@ module.exports = {
   cooldown: 10000,
 
   run: async (client, interaction) => {
+    // Only guild owner allowed
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({
         content: 'Only the server owner can run this setup command.',
-        flags: InteractionResponseFlags.Ephemeral, // updated here
+        flags: InteractionResponseFlags.Ephemeral,
       });
     }
 
+    // Fetch members cache to get roles and members
     await interaction.guild.members.fetch();
+
     const db = await dbPromise;
     const guildId = interaction.guild.id;
 
+    // Load existing config if any
     const existing = await db
       .select()
       .from(configs)
@@ -45,7 +49,7 @@ module.exports = {
       reportChannel: null,
     };
 
-    const adminUserIds = JSON.parse(config.adminUserIds || '[]');
+    let adminUserIds = JSON.parse(config.adminUserIds || '[]');
 
     const embed = new EmbedBuilder()
       .setTitle(`Server Setup for ${interaction.guild.name}`)
@@ -64,6 +68,7 @@ module.exports = {
       .setColor('Blue')
       .setTimestamp();
 
+    // Build Select menus
     const row1 = new ActionRowBuilder().addComponents(
       new RoleSelectMenuBuilder()
         .setCustomId('select_admin_role')
@@ -84,35 +89,32 @@ module.exports = {
       new ChannelSelectMenuBuilder()
         .setCustomId('select_report_channel')
         .setPlaceholder('Select Report Channel')
-        .setChannelTypes([ChannelType.GuildText])
+        .addChannelTypes(ChannelType.GuildText)
     );
 
+    // Send ephemeral reply with setup UI
     await interaction.reply({
       embeds: [embed],
       components: [row1, row2, row3],
-      flags: InteractionResponseFlags.Ephemeral, // updated here
+      flags: InteractionResponseFlags.Ephemeral,
     });
 
     const message = await interaction.fetchReply();
 
-    // Important fix: Use ComponentType.RoleSelect, UserSelect, ChannelSelect accordingly
-    // You currently listen for ComponentType.StringSelect which is wrong for these menu types
-
+    // Create collector listening for select menus, filtered to original user
     const collector = message.createMessageComponentCollector({
       componentType: [
         ComponentType.RoleSelect,
         ComponentType.UserSelect,
         ComponentType.ChannelSelect,
       ],
-      time: 120000,
+      time: 120_000,
       filter: i => i.user.id === interaction.user.id,
     });
 
     collector.on('collect', async i => {
       try {
-        console.log(`Collected: ${i.customId} -> ${i.values.join(', ')}`);
-
-        // Always defer update immediately to avoid "interaction failed"
+        // Always defer update immediately to prevent "This interaction failed"
         await i.deferUpdate();
 
         if (i.customId === 'select_admin_role') {
@@ -120,9 +122,17 @@ module.exports = {
           const selectedRole = interaction.guild.roles.cache.get(selectedRoleId);
           const botMember = interaction.guild.members.me;
 
+          if (!selectedRole) {
+            return await i.followUp({
+              content: '❌ Selected role not found.',
+              flags: InteractionResponseFlags.Ephemeral,
+            });
+          }
+
+          // Check bot role is higher than selected role
           if (selectedRole.position >= botMember.roles.highest.position) {
             return await i.followUp({
-              content: '❌ My role must be above the selected admin role.',
+              content: '❌ My role must be higher than the selected admin role.',
               flags: InteractionResponseFlags.Ephemeral,
             });
           }
@@ -155,9 +165,11 @@ module.exports = {
         } else if (i.customId === 'select_admin_users') {
           const selectedUserIds = i.values;
 
+          // Toggle each selected user: add if not present, remove if present
           for (const userId of selectedUserIds) {
-            if (adminUserIds.includes(userId)) {
-              adminUserIds.splice(adminUserIds.indexOf(userId), 1);
+            const index = adminUserIds.indexOf(userId);
+            if (index > -1) {
+              adminUserIds.splice(index, 1);
             } else {
               adminUserIds.push(userId);
             }
@@ -215,10 +227,13 @@ module.exports = {
           await interaction.editReply({ embeds: [embed], components: [row1, row2, row3] });
         }
       } catch (err) {
-        console.error(`Interaction error: ${err.stack || err.message}`);
+        console.error('Interaction error:', err);
         if (!i.replied && !i.deferred) {
           try {
-            await i.reply({ content: '❌ Something went wrong during setup.', flags: InteractionResponseFlags.Ephemeral });
+            await i.reply({
+              content: '❌ Something went wrong during setup.',
+              flags: InteractionResponseFlags.Ephemeral,
+            });
           } catch {}
         }
       }
