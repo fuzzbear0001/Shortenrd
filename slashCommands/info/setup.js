@@ -9,7 +9,6 @@ const {
   ChannelType,
 } = require('discord.js');
 
-const { InteractionResponseFlags } = require('discord-api-types/v10');
 const { eq } = require('drizzle-orm');
 const { configs } = require('../../drizzle/schema.js');
 const { dbPromise } = require('../../drizzle/db.js');
@@ -25,7 +24,6 @@ module.exports = {
     if (interaction.user.id !== interaction.guild.ownerId) {
       return interaction.reply({
         content: 'Only the server owner can run this setup command.',
-        flags: InteractionResponseFlags.Ephemeral,
       });
     }
 
@@ -109,7 +107,6 @@ module.exports = {
     const response = await interaction.reply({
       embeds: [generateEmbed()],
       components: [row1, row2, row3],
-      flags: InteractionResponseFlags.Ephemeral,
     });
 
     // Helper to upsert config with generated id (if none exists)
@@ -154,7 +151,6 @@ module.exports = {
         content: `✅ Admin role set to <@&${selectedRoleId}>`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        flags: InteractionResponseFlags.Ephemeral,
       });
     });
 
@@ -173,7 +169,6 @@ module.exports = {
         content: `✅ Admin users updated.`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        flags: InteractionResponseFlags.Ephemeral,
       });
     });
 
@@ -192,7 +187,6 @@ module.exports = {
         content: `✅ Report channel set to <#${selectedChannelId}>`,
         embeds: [generateEmbed()],
         components: [row1, row2, row3],
-        flags: InteractionResponseFlags.Ephemeral,
       });
     });
   },
